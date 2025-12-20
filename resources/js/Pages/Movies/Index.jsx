@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Head, Link, usePage, router } from '@inertiajs/react';
 import { 
-    PlayCircle, Search, MapPin, ChevronDown, Star, Clock, 
+    User ,PlayCircle, Search, MapPin, ChevronDown, Star, Clock, 
     Calendar, Filter, Ticket, LogOut, X, LayoutGrid,CalendarDays,
     Facebook, Instagram, Youtube, Mail, Phone, ChevronRight
 } from 'lucide-react';
@@ -55,6 +55,24 @@ export default function Index({ movies, featureMovie, dateBar, filters }) {
             preserveScroll: true, 
             replace: true 
         });
+    };
+
+    const handleQuickBook = (movie) => {
+        const today = new Date().toISOString().split('T')[0];
+        let targetDate;
+
+        // Logic ưu tiên ngày:
+        // 1. Nếu đang chọn ngày cụ thể (không phải All, không phải Search) -> Dùng ngày đó.
+        if (filters.date && filters.date !== 'all' && !filters.search) {
+            targetDate = filters.date;
+        } else {
+            // 2. Nếu đang ở All/Search -> Dùng ngày chiếu gần nhất (Backend gửi lên)
+            // Nếu không có lịch gần nhất -> Dùng ngày ra mắt -> Hoặc hôm nay
+            targetDate = movie.nearest_showtime_date || movie.release_date || today;
+        }
+
+        // Chuyển hướng
+        router.get(`/movies/${movie.id}`, { date: targetDate });
     };
 
     const handleSearchSubmit = (e) => {
@@ -316,19 +334,7 @@ export default function Index({ movies, featureMovie, dateBar, filters }) {
                     <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-5 xl:grid-cols-6 gap-6 2xl:grid-cols-7 gap-7">
                         {movies.map(movie => {
                             // --- LOGIC TÍNH NGÀY ĐỂ FIX LỖI REFERENCE ERROR ---
-                            let linkDate;
-                            const today = new Date().toISOString().split('T')[0];
-
-                            if (filters.date && filters.date !== 'all') {
-                                linkDate = filters.date;
-                            } else {
-                                // Nếu ALL: Phim chưa chiếu -> Link tới ngày release. Phim đang chiếu -> Link hôm nay.
-                                if (movie.release_date && movie.release_date > today) {
-                                    linkDate = movie.release_date;
-                                } else {
-                                    linkDate = today;
-                                }
-                            }
+                            
                             // -----------------------------------------------
 
                             return (
@@ -340,9 +346,12 @@ export default function Index({ movies, featureMovie, dateBar, filters }) {
                                         <img src={movie.poster_url} alt={movie.title} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" loading="lazy" />
                                         
                                         <div className="absolute inset-0 bg-black/80 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col items-center justify-center gap-3 p-4 backdrop-blur-[2px]">
-                                            <Link href={`/movies/${movie.id}?date=${linkDate}`} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 rounded-lg text-sm text-center shadow-lg transition">
-                                                <Calendar className="w-4 h-4 inline mr-1" /> Đặt Vé
-                                            </Link>
+                                            <button 
+                                                onClick={() => handleQuickBook(movie)}
+                                                className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 rounded-lg text-sm text-center shadow-lg transition flex items-center justify-center gap-1"
+                                            >
+                                                <Calendar className="w-4 h-4" /> Đặt Vé
+                                            </button>
                                             {movie.trailer_url && (
                                                 <button onClick={() => setPlayingTrailer(movie.trailer_url)} className="w-full border border-gray-400 hover:bg-white hover:text-black text-white font-bold py-2 rounded-lg text-sm text-center transition">
                                                     <PlayCircle className="w-4 h-4 inline mr-1" /> Trailer

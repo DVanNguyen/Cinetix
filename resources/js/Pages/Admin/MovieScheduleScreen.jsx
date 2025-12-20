@@ -1,228 +1,315 @@
-import { Head, router } from '@inertiajs/react';
-import AdminLayout from "@/Pages/Layouts/AdminLayout";
-import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
-import { Save, Calendar, Star, Clock, AlertCircle, RefreshCw } from 'lucide-react';
 import React, { useState, useEffect } from 'react';
+import { Head, router } from '@inertiajs/react';
+import AdminLayout from '@/Pages/Layouts/AdminLayout';
+import { 
+    Save, Calendar, Star, Clock, AlertCircle, RefreshCw, 
+    Search, Plus, Trash2, GripVertical, Film, ChevronDown, MapPin 
+} from 'lucide-react';
 
 export default function MovieScheduleScreen({ dates = [], allMovies = [] }) {
-    // 1. STATE QUẢN LÝ
+    
+    // --- STATE QUẢN LÝ ---
+    // Đảm bảo dữ liệu luôn là mảng để tránh lỗi .map()
     const safeDates = Array.isArray(dates) ? dates : [];
     const safeAllMovies = Array.isArray(allMovies) ? allMovies : [];
-
-    // --- TẦNG BẢO VỆ 2: OBJECT MẶC ĐỊNH (FALLBACK) ---
-    // Object rỗng để dùng khi chưa chọn ngày hoặc danh sách ngày bị rỗng
-    const emptyDayData = { 
-        date: '', 
-        display: 'Chưa chọn', 
-        movies: [], 
-        source: '' 
-    };
-
-    // 1. STATE
-    const [selectedDateIndex, setSelectedDateIndex] = useState(0); 
-
-    // 2. LẤY DATA NGÀY HIỆN TẠI (Dùng optional chaining ?. để tránh lỗi)
-    // Nếu safeDates[0] không có -> dùng emptyDayData
+    
+    // Object mặc định phòng khi dữ liệu ngày bị thiếu
+    const emptyDayData = { date: '', display: 'Chưa chọn', movies: [], source: '' };
+    
+    const [selectedDateIndex, setSelectedDateIndex] = useState(0);
     const currentDateData = safeDates[selectedDateIndex] || emptyDayData;
-
-    // 3. STATE LIST PHIM (Luôn đảm bảo là mảng)
+    
+    // List phim của ngày hiện tại (đang thao tác)
     const [currentMovies, setCurrentMovies] = useState(currentDateData.movies || []);
+    
+    const [searchTerm, setSearchTerm] = useState(""); 
+    const [isSaving, setIsSaving] = useState(false);
 
-    // 4. EFFECT: ĐỒNG BỘ KHI ĐỔI NGÀY
+    // Effect: Đồng bộ dữ liệu khi người dùng đổi ngày
     useEffect(() => {
-        // Mỗi khi index thay đổi, cập nhật lại list phim
-        // Nếu ngày đó chưa có phim -> gán mảng rỗng []
         setCurrentMovies(currentDateData.movies || []);
     }, [selectedDateIndex, safeDates]);
 
+    // --- LOGIC KÉO THẢ (HTML5 Native Drag & Drop) ---
+    const [draggedItemIndex, setDraggedItemIndex] = useState(null);
 
-    // 2. HÀM KÉO THẢ (Drag & Drop Logic)
-    const onDragEnd = (result) => {
-        if (!result.destination) return; // Kéo ra ngoài thì thôi
-
-        const items = Array.from(currentMovies);
-        const [reorderedItem] = items.splice(result.source.index, 1);
-        items.splice(result.destination.index, 0, reorderedItem);
-
-        setCurrentMovies(items);
+    const handleDragStart = (e, index) => {
+        setDraggedItemIndex(index);
+        e.dataTransfer.effectAllowed = "move";
+        // Có thể set drag image tùy chỉnh ở đây nếu cần
     };
 
-    // 3. HÀM THÊM PHIM (Từ kho phim bên phải)
+    const handleDragOver = (e, index) => {
+        e.preventDefault(); // Cần thiết để cho phép drop
+        e.dataTransfer.dropEffect = "move";
+    };
+
+    const handleDrop = (e, targetIndex) => {
+        e.preventDefault();
+        if (draggedItemIndex === null) return;
+
+        const items = [...currentMovies];
+        const itemToMove = items[draggedItemIndex];
+        
+        // Xóa item ở vị trí cũ
+        items.splice(draggedItemIndex, 1);
+        // Chèn vào vị trí mới
+        items.splice(targetIndex, 0, itemToMove);
+        
+        setCurrentMovies(items);
+        setDraggedItemIndex(null);
+    };
+
+    // --- LOGIC CRUD ---
     const addMovieToSchedule = (movie) => {
-        // Kiểm tra trùng
         if (currentMovies.find(m => m.movie_id === movie.movie_id)) {
-            alert('Phim này đã có trong danh sách!');
+            alert('⚠️ Phim này đã có trong danh sách chiếu ngày hôm nay!');
             return;
         }
         setCurrentMovies([...currentMovies, movie]);
     };
 
-    // 4. HÀM XÓA PHIM
     const removeMovie = (index) => {
         const newMovies = [...currentMovies];
         newMovies.splice(index, 1);
         setCurrentMovies(newMovies);
     };
 
-    // 5. HÀM LƯU LỊCH (Gửi về Server)
     const saveSchedule = () => {
-        // Đảm bảo lấy đúng chuỗi ngày (VD: '2024-12-16')
-        const dateParam = currentDateData.date; 
+        if (!currentDateData.date) return alert("Lỗi: Không xác định được ngày!");
 
-
-        // SỬA 1: Đổi router.post -> router.put (Vì bên Laravel khai báo Route::put)
-        // SỬA 2: Đổi URL từ /admin/schedule -> /admin/movie-schedule
+        setIsSaving(true);
+        
+        // Gửi request PUT lên server để lưu
         router.put(
-            `/admin/movie-schedule/${dateParam}`, 
+            `/admin/movie-schedule/${currentDateData.date}`,
+            { movies: currentMovies },
             {
-                movies: currentMovies
-            },
-            {
-                onSuccess: () => alert('Đã lưu lịch thành công!'),
+                onSuccess: () => {
+                    setIsSaving(false);
+                    // Hiển thị thông báo (Có thể dùng Toast nếu project có sẵn)
+                    alert(`✅ Đã lưu lịch chiếu cho ngày ${currentDateData.display} thành công!`);
+                },
                 onError: (err) => {
+                    setIsSaving(false);
                     console.error(err);
-                    alert('Lỗi khi lưu lịch! Hãy kiểm tra Console (F12).');
+                    alert('❌ Lỗi khi lưu lịch! Vui lòng kiểm tra lại.');
                 }
             }
         );
-};
-
-    // 6. HÀM ĐỔI NGÀY
-    const changeDate = (index) => {
-        setSelectedDateIndex(index);
-        setCurrentMovies(dates[index].movies || []); // Reset list phim theo ngày mới
     };
+
+    // Filter phim trong kho theo từ khóa tìm kiếm
+    const filteredLibrary = safeAllMovies.filter(movie => 
+        movie.title.toLowerCase().includes(searchTerm.toLowerCase())
+    );
 
     return (
         <AdminLayout title="Xếp Lịch Chiếu Phim">
-            <Head title="Xếp Lịch" />
+            <Head title="Xếp Lịch Chiếu" />
 
-            <div className="flex gap-6 h-[calc(100vh-140px)]">
+            {/* Layout Flex chính: h-screen để full màn hình, overflow-hidden để cuộn từng phần */}
+            <div className="flex h-screen flex-col md:flex-row overflow-hidden bg-gray-950">
                 
-                {/* CỘT 1: DANH SÁCH 14 NGÀY (SIDEBAR TRÁI) */}
-                <div className="w-64 bg-gray-900 rounded-xl border border-gray-800 shadow-xl overflow-hidden flex flex-col">
-                    <div className="p-4 border-b border-gray-800 font-bold text-gray-400">Chọn Ngày</div>
-                    <div className="flex-1 overflow-y-auto p-2 space-y-1">
-                        {dates.map((d, idx) => (
-                            <button
-                                key={d.date}
-                                onClick={() => changeDate(idx)}
-                                className={`w-full text-left px-4 py-3 rounded-lg border transition-all ${
-                                    idx === selectedDateIndex 
-                                    ? 'bg-blue-600 text-white border-blue-500 shadow-lg' 
-                                    : 'bg-gray-800 text-gray-400 border-transparent hover:bg-gray-700'
-                                }`}
-                            >
-                                <div className="font-bold flex justify-between">
-                                    {d.display}
-                                    {/* Icon nhỏ báo hiệu nguồn dữ liệu */}
-                                    {d.source === 'auto' && <span title="Tự động" className="text-xs bg-purple-500/20 text-purple-400 px-1 rounded">Auto</span>}
+                {/* --- CỘT 2: KHU VỰC CHÍNH (SCHEDULE MAIN) --- */}
+                <div className="flex-1 flex flex-col bg-gray-950 relative">
+                    
+                    {/* Header Toolbar */}
+                    <div className="h-20 border-b border-gray-800 bg-gray-900/90 backdrop-blur-md flex justify-between items-center px-6 sticky top-0 z-10 gap-4">
+                        <div className="flex items-center gap-4 flex-1">
+                            
+                            {/* COMBOBOX CHỌN NGÀY */}
+                            <div className="relative group">
+                                <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none text-red-500 group-hover:text-red-400 transition-colors">
+                                    <Calendar size={20} />
                                 </div>
-                                <div className="text-xs opacity-70 mt-1">{d.movies.length} phim</div>
-                            </button>
-                        ))}
-                    </div>
-                </div>
-
-                {/* CỘT 2: KHU VỰC KÉO THẢ (MAIN) */}
-                <div className="flex-1 bg-gray-900 rounded-xl border border-gray-800 shadow-xl flex flex-col">
-                    {/* Header */}
-                    <div className="p-4 border-b border-gray-800 flex justify-between items-center bg-gray-800/50">
-                        <div>
-                            <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                                <Calendar className="text-blue-500"/> 
-                                Lịch Ngày: <span className="text-blue-400">{currentDateData.display}</span>
-                            </h2>
-                            <p className="text-xs text-gray-500 mt-1">
-                                {currentDateData.source === 'auto' 
-                                    ? '⚠️ Đây là lịch gợi ý tự động. Hãy chỉnh sửa và bấm Lưu để chốt.' 
-                                    : '✅ Lịch này đã được lưu trong Database.'}
-                            </p>
-                        </div>
-                        <button 
-                            onClick={saveSchedule}
-                            className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-bold shadow-lg shadow-green-900/20 flex items-center gap-2 transition-all"
-                        >
-                            <Save size={18} /> Lưu Thay Đổi
-                        </button>
-                    </div>
-
-                    {/* Drag & Drop Area */}
-                    <DragDropContext onDragEnd={onDragEnd}>
-                        <Droppable droppableId="schedule-list">
-                            {(provided) => (
-                                <div 
-                                    {...provided.droppableProps} 
-                                    ref={provided.innerRef} 
-                                    className="flex-1 p-4 space-y-3 overflow-y-auto bg-gray-900/50"
+                                <select
+                                    value={selectedDateIndex}
+                                    onChange={(e) => setSelectedDateIndex(Number(e.target.value))}
+                                    className="appearance-none bg-gray-800 border border-gray-700 text-white pl-10 pr-10 py-2.5 rounded-xl font-bold focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all cursor-pointer min-w-[240px] hover:bg-gray-700"
                                 >
-                                    {currentMovies.length === 0 && (
-                                        <div className="h-full flex flex-col items-center justify-center text-gray-500 border-2 border-dashed border-gray-700 rounded-xl">
-                                            <AlertCircle size={48} className="mb-2 opacity-50"/>
-                                            <p>Chưa có phim nào. Hãy chọn từ danh sách bên phải.</p>
-                                        </div>
-                                    )}
-
-                                    {currentMovies.map((movie, index) => (
-                                        <Draggable key={movie.movie_id} draggableId={String(movie.movie_id)} index={index}>
-                                            {(provided, snapshot) => (
-                                                <div
-                                                    ref={provided.innerRef}
-                                                    {...provided.draggableProps}
-                                                    {...provided.dragHandleProps}
-                                                    className={`flex items-center gap-4 p-3 rounded-lg border shadow-sm ${
-                                                        snapshot.isDragging 
-                                                        ? 'bg-blue-900 border-blue-500 z-50' 
-                                                        : 'bg-gray-800 border-gray-700 hover:border-gray-600'
-                                                    }`}
-                                                >
-                                                    <div className="font-bold text-gray-500 w-6 text-center">#{index + 1}</div>
-                                                    <img src={movie.poster_url} className="w-10 h-14 rounded object-cover" />
-                                                    <div className="flex-1">
-                                                        <div className="font-bold text-white">{movie.title}</div>
-                                                        <div className="text-xs text-yellow-500 flex items-center gap-1">
-                                                            <Star size={10} fill="currentColor"/> {movie.rating}
-                                                        </div>
-                                                    </div>
-                                                    <button 
-                                                        onClick={() => removeMovie(index)}
-                                                        className="p-2 text-gray-500 hover:text-red-500 hover:bg-gray-700 rounded transition-colors"
-                                                    >
-                                                        Xóa
-                                                    </button>
-                                                </div>
-                                            )}
-                                        </Draggable>
+                                    {safeDates.map((d, idx) => (
+                                        <option key={d.date} value={idx}>
+                                            {d.display} {d.source === 'auto' ? '• (Auto)' : ''}
+                                        </option>
                                     ))}
-                                    {provided.placeholder}
+                                </select>
+                                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500">
+                                    <ChevronDown size={16} />
+                                </div>
+                            </div>
+
+                            <div className="hidden lg:block h-8 w-px bg-gray-700 mx-2"></div>
+
+                            <div className="hidden lg:block">
+                                <p className="text-sm font-bold text-gray-300 flex items-center gap-2">
+                                    <MapPin size={14} className="text-gray-500"/> Quản lý lịch chiếu
+                                </p>
+                                <p className="text-xs text-gray-500 mt-0.5">
+                                    {currentMovies.length} phim được xếp
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                            {currentDateData.source === 'auto' && (
+                                <div className="hidden sm:flex items-center gap-2 text-xs text-yellow-500 bg-yellow-500/10 px-3 py-1.5 rounded-full border border-yellow-500/20">
+                                    <AlertCircle size={14} />
+                                    <span>Gợi ý tự động</span>
                                 </div>
                             )}
-                        </Droppable>
-                    </DragDropContext>
+                            <button 
+                                onClick={saveSchedule}
+                                disabled={isSaving}
+                                className="bg-white text-black hover:bg-gray-200 px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-white/5 active:scale-95"
+                            >
+                                {isSaving ? <RefreshCw size={18} className="animate-spin"/> : <Save size={18} />}
+                                {isSaving ? 'Đang lưu...' : 'Lưu Lịch'}
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Schedule Canvas (Drag & Drop Area) */}
+                    <div className="flex-1 overflow-y-auto p-6 custom-scrollbar bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] bg-fixed">
+                        {currentMovies.length === 0 ? (
+                            <div className="h-full flex flex-col items-center justify-center border-2 border-dashed border-gray-800 rounded-2xl bg-gray-900/50 p-10 text-center">
+                                <div className="w-20 h-20 bg-gray-800 rounded-full flex items-center justify-center mb-4">
+                                    <Film size={40} className="text-gray-500 opacity-50" />
+                                </div>
+                                <h3 className="text-xl font-bold text-gray-300">Chưa có phim nào</h3>
+                                <p className="text-gray-500 mt-2 max-w-xs">Chọn phim từ danh sách bên phải và bấm dấu (+) để thêm vào lịch chiếu ngày này.</p>
+                            </div>
+                        ) : (
+                            <div className="space-y-3 max-w-4xl mx-auto">
+                                {currentMovies.map((movie, index) => (
+                                    <div
+                                        key={`${movie.movie_id}-${index}`}
+                                        draggable
+                                        onDragStart={(e) => handleDragStart(e, index)}
+                                        onDragOver={(e) => handleDragOver(e, index)}
+                                        onDrop={(e) => handleDrop(e, index)}
+                                        className="group relative flex items-center gap-4 bg-gray-900 border border-gray-800 rounded-xl p-3 hover:border-red-500/50 transition-all shadow-lg hover:shadow-red-900/10 cursor-move"
+                                    >
+                                        {/* Drag Handle */}
+                                        <div className="text-gray-600 group-hover:text-gray-400 cursor-grab active:cursor-grabbing px-1">
+                                            <GripVertical size={20} />
+                                        </div>
+
+                                        {/* Order Badge */}
+                                        <div className="w-8 h-8 rounded-lg bg-gray-800 flex items-center justify-center font-bold text-gray-400 text-sm border border-gray-700">
+                                            {index + 1}
+                                        </div>
+
+                                        {/* Movie Poster */}
+                                        <div className="w-12 h-16 rounded-lg overflow-hidden flex-shrink-0 border border-gray-700 relative">
+                                            <img src={movie.poster_url} className="w-full h-full object-cover" alt={movie.title} />
+                                            <div className="absolute inset-0 bg-black/20 group-hover:bg-transparent transition-colors"></div>
+                                        </div>
+
+                                        {/* Movie Info */}
+                                        <div className="flex-1 min-w-0">
+                                            <h3 className="font-bold text-white text-base truncate pr-4">{movie.title}</h3>
+                                            <div className="flex items-center gap-3 text-xs text-gray-400 mt-1">
+                                                <span className="flex items-center gap-1 bg-gray-800 px-2 py-0.5 rounded text-gray-300">
+                                                    <Clock size={12}/> {movie.duration || 'N/A'}
+                                                </span>
+                                                <span className="flex items-center gap-1 text-yellow-500">
+                                                    <Star size={12} fill="currentColor"/> {movie.rating || '0.0'}
+                                                </span>
+                                                {movie.genre && <span>• {movie.genre}</span>}
+                                            </div>
+                                        </div>
+
+                                        {/* Actions */}
+                                        <div className="flex items-center gap-2 pr-2">
+                                            <button 
+                                                onClick={() => removeMovie(index)}
+                                                className="p-2 text-gray-500 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors"
+                                                title="Xóa khỏi lịch"
+                                            >
+                                                <Trash2 size={18} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 </div>
 
-                {/* CỘT 3: KHO PHIM (SIDEBAR PHẢI) */}
-                <div className="w-80 bg-gray-900 rounded-xl border border-gray-800 shadow-xl flex flex-col">
-                    <div className="p-4 border-b border-gray-800 font-bold text-gray-400">Kho Phim ({allMovies.length})</div>
-                    <div className="flex-1 overflow-y-auto p-2 space-y-2">
-                        {allMovies.map(movie => (
-                            <div key={movie.movie_id} className="flex gap-3 p-2 rounded-lg hover:bg-gray-800 border border-transparent hover:border-gray-700 group transition-all">
-                                <img src={movie.poster_url} className="w-12 h-16 rounded object-cover" />
-                                <div className="flex-1 min-w-0">
-                                    <div className="font-bold text-sm text-gray-200 truncate" title={movie.title}>{movie.title}</div>
-                                    <div className="text-xs text-yellow-500 mt-1">{movie.rating} ★</div>
+                {/* --- CỘT 3: KHO PHIM (SIDEBAR PHẢI) --- */}
+                <div className="w-full md:w-80 bg-gray-900 border-l border-gray-800 flex flex-col z-20 shadow-2xl">
+                    <div className="p-5 border-b border-gray-800">
+                        <h2 className="font-bold text-white mb-3 flex items-center justify-between">
+                            Kho Phim
+                            <span className="text-xs bg-gray-800 px-2 py-0.5 rounded-full text-gray-300">{safeAllMovies.length}</span>
+                        </h2>
+                        {/* Search Box */}
+                        <div className="relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
+                            <input 
+                                type="text" 
+                                placeholder="Tìm tên phim..." 
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full bg-gray-800 border border-transparent focus:border-red-500 text-gray-200 text-sm rounded-lg pl-9 pr-3 py-2.5 outline-none transition-all placeholder-gray-600 focus:ring-1 focus:ring-red-500"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto p-3 space-y-3 custom-scrollbar">
+                        {filteredLibrary.length > 0 ? filteredLibrary.map(movie => (
+                            <div key={movie.movie_id} className="group flex gap-3 p-2 rounded-xl hover:bg-gray-800 border border-transparent hover:border-gray-700 transition-all relative">
+                                <div className="w-14 h-20 rounded-lg overflow-hidden shadow-sm flex-shrink-0 relative">
+                                    <img src={movie.poster_url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt="Poster" />
+                                    {/* Quick Add Overlay */}
+                                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                        <button 
+                                            onClick={() => addMovieToSchedule(movie)}
+                                            className="text-white bg-red-600 p-1.5 rounded-full hover:scale-110 transition-transform shadow-lg"
+                                            title="Thêm vào lịch"
+                                        >
+                                            <Plus size={16} />
+                                        </button>
+                                    </div>
+                                </div>
+                                
+                                <div className="flex-1 min-w-0 flex flex-col justify-center">
+                                    <h4 className="font-bold text-sm text-gray-200 truncate group-hover:text-white transition-colors" title={movie.title}>
+                                        {movie.title}
+                                    </h4>
+                                    <div className="flex items-center gap-1 text-[10px] text-gray-500 mt-1">
+                                        <span>{movie.duration || 'N/A'}</span>
+                                        <span>•</span>
+                                        <span className="text-yellow-600 flex items-center gap-0.5"><Star size={8} fill="currentColor"/> {movie.rating || '0.0'}</span>
+                                    </div>
+                                    
+                                    {/* Nút thêm cho Mobile (hoặc khi không hover) */}
                                     <button 
                                         onClick={() => addMovieToSchedule(movie)}
-                                        className="mt-2 text-xs bg-blue-600/20 text-blue-400 px-2 py-1 rounded border border-blue-500/30 hover:bg-blue-600 hover:text-white w-full transition-colors"
+                                        className="mt-2 text-[10px] font-bold text-blue-400 border border-blue-500/30 bg-blue-500/10 px-2 py-1 rounded hover:bg-blue-500 hover:text-white transition-colors w-fit group-hover:hidden"
                                     >
-                                        + Thêm vào lịch
+                                        + Thêm
                                     </button>
                                 </div>
                             </div>
-                        ))}
+                        )) : (
+                            <div className="text-center py-10 text-gray-600 text-xs">
+                                <p>Không tìm thấy phim nào.</p>
+                            </div>
+                        )}
                     </div>
                 </div>
+
             </div>
+
+            {/* Custom Scrollbar Styles (Màu xám/tối) */}
+            <style>{`
+                .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+                .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+                .custom-scrollbar::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+                .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+            `}</style>
         </AdminLayout>
     );
 }

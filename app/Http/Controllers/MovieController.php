@@ -7,6 +7,7 @@ use App\Models\MovieSchedule;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class MovieController extends Controller
 {
@@ -14,7 +15,7 @@ class MovieController extends Controller
     {
         $today = Carbon::today();
         
-        // 1. Lấy filters (Khớp tên biến với Frontend)
+        // 1. Lấy filters
         $dateParam = $request->query('date', $today->format('Y-m-d'));
         $search = $request->query('search');
         $genre = $request->query('genre'); 
@@ -35,20 +36,14 @@ class MovieController extends Controller
         // 3. Tạo Date Bar (7 ngày)
         $dateBar = $this->generateDateBar($today, $dateParam);
 
-        // --- 4. LOGIC MỚI: FIX LỖI DISTINCT ORDER BY ---
-        $movieQuery = Movie::query();
-
-        // Join bảng lịch chiếu
-        $movieQuery->join('movie_schedules', 'movies.movie_id', '=', 'movie_schedules.movie_id');
-
+        // 4. Logic lấy phim
         if ($search) {
-        $finalMovieList = Movie::where('title', 'like', "%{$search}%")
-            ->orWhere('cast', 'like', "%{$search}%")
-            ->orderBy('release_date', 'desc')
-            ->get();
+            $finalMovieList = Movie::where('title', 'like', "%{$search}%")
+                ->orWhere('cast', 'like', "%{$search}%")
+                ->orderBy('release_date', 'desc')
+                ->get();
         } 
         elseif ($dateParam === 'all') {
-            // Nếu chọn ALL: Lấy tất cả phim có lịch trong 7 ngày tới
             $endDate = $today->copy()->addDays(7);
             $finalMovieList = Movie::join('movie_schedules', 'movies.movie_id', '=', 'movie_schedules.movie_id')
                 ->whereBetween('movie_schedules.show_date', [$today, $endDate])
@@ -58,7 +53,6 @@ class MovieController extends Controller
                 ->get();
         } 
         else {
-            // Nếu chọn ngày cụ thể: Dùng Helper vừa tạo
             $finalMovieList = MovieSchedule::getListForDate($queryDate->format('Y-m-d'));
         }
 
@@ -67,7 +61,17 @@ class MovieController extends Controller
             $finalMovieList = $finalMovieList->filter(fn($m) => $m->genre && $m->genre->name === $genre)->values();
         }
 
-        // 5. Load Showtimes
+        // ✅ 5. Tính ngày gần nhất cho tất cả phim (1 query duy nhất)
+        $movieIds = $finalMovieList->pluck('movie_id')->toArray();
+        
+        $nearestDates = DB::table('movie_schedules')
+            ->whereIn('movie_id', $movieIds)
+            ->where('show_date', '>=', $today->format('Y-m-d'))
+            ->select('movie_id', DB::raw('MIN(show_date) as nearest_date'))
+            ->groupBy('movie_id')
+            ->pluck('nearest_date', 'movie_id');
+
+        // 6. Load Showtimes và gán nearest_date
         foreach ($finalMovieList as $movie) {
             $showtimeDate = ($dateParam === 'all') ? $today->format('Y-m-d') : $dateParam;
             
@@ -79,10 +83,22 @@ class MovieController extends Controller
                     ->take(4)
                     ->get()
             );
+
+            // ✅ Gán ngày gần nhất từ movie_schedules
+            $movie->nearest_showtime_date = $nearestDates[$movie->movie_id] ?? null;
         }
 
-        // 6. Trả về
+        // 7. Trả về
         $featureMovieData = $finalMovieList->first() ?? Movie::orderBy('rating', 'desc')->first();
+        
+        // Nếu feature movie không có nearest_date, tính riêng
+        if ($featureMovieData && !isset($featureMovieData->nearest_showtime_date)) {
+            $featureMovieData->nearest_showtime_date = DB::table('movie_schedules')
+                ->where('movie_id', $featureMovieData->movie_id)
+                ->where('show_date', '>=', $today->format('Y-m-d'))
+                ->min('show_date');
+        }
+
         $movies = $finalMovieList->map(fn($m) => $this->transformMovie($m, $today));
         $featureMovie = $this->transformMovie($featureMovieData, $today);
 
@@ -99,7 +115,7 @@ class MovieController extends Controller
         ]);
     }
 
-    // --- CÁC HÀM HELPER GIỮ NGUYÊN NHƯ CŨ ---
+    // --- CÁC HÀM HELPER ---
     private function generateDateBar($today, $selectedDateStr)
     {
         $dateBar = [];
@@ -124,6 +140,7 @@ class MovieController extends Controller
     private function transformMovie($movie, $today) {
         if (!$movie) return null;
         $isComingSoon = $movie->release_date && Carbon::parse($movie->release_date)->gt($today);
+        
         return [
             'id' => $movie->movie_id,
             'title' => $movie->title,
@@ -135,7 +152,8 @@ class MovieController extends Controller
             'trailer_url' => $movie->trailer_url,
             'release_date' => $movie->release_date ? Carbon::parse($movie->release_date)->format('Y-m-d') : null,
             'status' => $isComingSoon ? 'coming_soon' : 'now_showing',
-            'showtimes' => $movie->showtimes->map(fn($s) => ['id' => $s->showtime_id, 'time' => Carbon::parse($s->start_time)->format('H:i')])
+            'showtimes' => $movie->showtimes->map(fn($s) => ['id' => $s->showtime_id, 'time' => Carbon::parse($s->start_time)->format('H:i')]),
+            'nearest_showtime_date' => $movie->nearest_showtime_date ?? null, // ✅ Ngày từ movie_schedules
         ];
     }
 
@@ -146,6 +164,6 @@ class MovieController extends Controller
     }
 
     private function getEmptyMovie() {
-        return ['id'=>0, 'title'=>'Đang cập nhật', 'poster_url'=>'', 'backdrop_url'=>'', 'rating'=>0, 'duration'=>''];
+        return ['id'=>0, 'title'=>'Đang cập nhật', 'poster_url'=>'', 'backdrop_url'=>'', 'rating'=>0, 'duration'=>'', 'nearest_showtime_date'=>null];
     }
 }

@@ -33,7 +33,7 @@ class ShowController extends Controller
                 
                 $startTime = Carbon::parse($showtime->start_time);
                 // ✅ Chỉ hiển thị suất chiếu bắt đầu SAU thời điểm hiện tại ít nhất 15 phút
-                return $startTime->diffInMinutes($now, false) > 5;
+                return $now->diffInMinutes($startTime, false) > 15;
             });
 
         // Gom nhóm dữ liệu: Rạp -> Định dạng -> Phòng -> Suất chiếu
