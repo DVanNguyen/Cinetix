@@ -1,15 +1,26 @@
 import React, { useState } from 'react';
 import { Head } from '@inertiajs/react';
-import { ChevronLeft, Clock, CreditCard, Loader2 } from 'lucide-react';
+import { ChevronLeft, Clock, CreditCard, Loader2, Wallet, AlertCircle } from 'lucide-react';
 import axios from 'axios';
 
 export default function Payment({ showtime, seats, combos, totalAmount, user }) {
     const [paymentMethod, setPaymentMethod] = useState('momo');
     const [isProcessing, setIsProcessing] = useState(false);
 
+    // ✅ Kiểm tra số dư ví có đủ không
+    const walletBalance = user.wallet_balance || 0;
+    const hasEnoughBalance = walletBalance >= totalAmount;
+
     // Xử lý nút "Thanh Toán Ngay"
     const handlePayment = async () => {
         if(isProcessing) return;
+
+        // Kiểm tra số dư nếu chọn ví
+        if (paymentMethod === 'wallet' && !hasEnoughBalance) {
+            alert('Số dư ví không đủ. Vui lòng nạp thêm hoặc chọn phương thức khác.');
+            return;
+        }
+
         setIsProcessing(true);
 
         try {
@@ -17,14 +28,14 @@ export default function Payment({ showtime, seats, combos, totalAmount, user }) 
                 showtime_id: showtime.showtime_id,
                 seat_ids: seats.map(s => s.seat_id),
                 payment_method: paymentMethod,
-                combos: combos // Gửi danh sách combo từ prop
+                combos: combos
             });
 
-            // CASE 1: Cần chuyển hướng sang Momo (Server trả về URL)
+            // CASE 1: Cần chuyển hướng sang Momo
             if (res.data.status === 'redirect') {
                 window.location.href = res.data.url; 
             } 
-            // CASE 2: Thanh toán thành công ngay (Tiền mặt / Free)
+            // CASE 2: Thanh toán thành công ngay (Ví Xu / Tiền mặt)
             else if (res.data.status === 'success') {
                 window.location.href = `/payment/result?status=success&booking_id=${res.data.booking_id}`;
             }
@@ -33,7 +44,6 @@ export default function Payment({ showtime, seats, combos, totalAmount, user }) 
             alert(error.response?.data?.message || "Lỗi xử lý thanh toán!");
             setIsProcessing(false);
         }
-        // Lưu ý: Không set isProcessing(false) nếu redirect để tránh user bấm lung tung
     };
 
     return (
@@ -72,29 +82,109 @@ export default function Payment({ showtime, seats, combos, totalAmount, user }) 
                         </div>
                     </div>
 
+                    {/* ✅ Hiển thị số dư ví */}
+                    <div className="bg-gradient-to-r from-yellow-900/20 to-orange-900/20 rounded-2xl p-6 border border-yellow-500/20">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className="w-12 h-12 bg-yellow-500/10 rounded-full flex items-center justify-center">
+                                    <Wallet className="w-6 h-6 text-yellow-500" />
+                                </div>
+                                <div>
+                                    <p className="text-sm text-gray-400">Số dư Ví Xu hiện tại</p>
+                                    <p className="text-2xl font-bold text-yellow-400">
+                                        {walletBalance.toLocaleString()} <span className="text-sm">Xu</span>
+                                    </p>
+                                </div>
+                            </div>
+                            {!hasEnoughBalance && paymentMethod === 'wallet' && (
+                                <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+                                    <p className="text-xs text-red-400 flex items-center gap-1">
+                                        <AlertCircle size={12} />
+                                        Không đủ số dư
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
                     {/* Phương thức thanh toán */}
                     <div className="bg-gray-900 rounded-2xl p-6 border border-gray-800">
                         <h3 className="font-bold mb-4 text-white">Phương thức thanh toán</h3>
                         <div className="space-y-3">
+                            
+                            {/* ✅ Option Ví Xu */}
+                            <label className={`flex items-center gap-4 p-4 rounded-xl border cursor-pointer transition ${
+                                paymentMethod === 'wallet' 
+                                    ? 'border-yellow-500 bg-yellow-500/5' 
+                                    : 'border-gray-700 hover:bg-gray-800'
+                            } ${!hasEnoughBalance ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                <input 
+                                    type="radio" 
+                                    name="pay" 
+                                    value="wallet" 
+                                    checked={paymentMethod === 'wallet'} 
+                                    onChange={() => setPaymentMethod('wallet')} 
+                                    disabled={!hasEnoughBalance}
+                                    className="accent-yellow-500 w-5 h-5"
+                                />
+                                <div className="w-10 h-10 bg-yellow-500/10 rounded-lg flex items-center justify-center">
+                                    <Wallet className="w-5 h-5 text-yellow-500" />
+                                </div>
+                                <div className="flex-1">
+                                    <div className="font-bold flex items-center gap-2">
+                                        Ví Xu
+                                        {hasEnoughBalance && (
+                                            <span className="text-xs bg-green-500/10 text-green-500 px-2 py-0.5 rounded-full border border-green-500/20">
+                                                Khuyến nghị
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="text-xs text-gray-400">
+                                        {hasEnoughBalance 
+                                            ? `Còn lại ${(walletBalance - totalAmount).toLocaleString()} Xu` 
+                                            : `Thiếu ${(totalAmount - walletBalance).toLocaleString()} Xu`
+                                        }
+                                    </div>
+                                </div>
+                                {!hasEnoughBalance && (
+                                    <span className="text-xs text-red-500 font-bold">Không đủ</span>
+                                )}
+                            </label>
+
                             {/* Option Momo */}
-                            <label className={`flex items-center gap-4 p-4 rounded-xl border cursor-pointer transition ${paymentMethod === 'momo' ? 'border-pink-500 bg-pink-500/5' : 'border-gray-700 hover:bg-gray-800'}`}>
+                            <label className={`flex items-center gap-4 p-4 rounded-xl border cursor-pointer transition ${
+                                paymentMethod === 'momo' 
+                                    ? 'border-pink-500 bg-pink-500/5' 
+                                    : 'border-gray-700 hover:bg-gray-800'
+                            }`}>
                                 <input type="radio" name="pay" value="momo" checked={paymentMethod === 'momo'} onChange={() => setPaymentMethod('momo')} className="accent-pink-500 w-5 h-5"/>
                                 <div className="w-10 h-10 bg-[#A50064] rounded-lg flex items-center justify-center font-bold text-white text-xs">MoMo</div>
                                 <div><div className="font-bold">Ví MoMo</div><div className="text-xs text-gray-400">Quét mã QR</div></div>
                             </label>
 
-                            {/* Option ATM (Placeholder) */}
-                            <label className={`flex items-center gap-4 p-4 rounded-xl border cursor-pointer transition ${paymentMethod === 'atm' ? 'border-blue-500 bg-blue-500/5' : 'border-gray-700 hover:bg-gray-800'}`}>
+                            {/* Option ATM */}
+                            <label className={`flex items-center gap-4 p-4 rounded-xl border cursor-pointer transition ${
+                                paymentMethod === 'atm' 
+                                    ? 'border-blue-500 bg-blue-500/5' 
+                                    : 'border-gray-700 hover:bg-gray-800'
+                            }`}>
                                 <input type="radio" name="pay" value="atm" checked={paymentMethod === 'atm'} onChange={() => setPaymentMethod('atm')} className="accent-blue-500 w-5 h-5"/>
                                 <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white"><CreditCard className="w-5 h-5"/></div>
                                 <div><div className="font-bold">Thẻ ATM / Banking</div><div className="text-xs text-gray-400">Thẻ nội địa</div></div>
                             </label>
                              
-                            {/* Option Tiền mặt (Test) */}
-                            <label className={`flex items-center gap-4 p-4 rounded-xl border cursor-pointer transition ${paymentMethod === 'cash' ? 'border-green-500 bg-green-500/5' : 'border-gray-700 hover:bg-gray-800'}`}>
+                            {/* Option Tiền mặt */}
+                            <label className={`flex items-center gap-4 p-4 rounded-xl border cursor-pointer transition ${
+                                paymentMethod === 'cash' 
+                                    ? 'border-green-500 bg-green-500/5' 
+                                    : 'border-gray-700 hover:bg-gray-800'
+                            }`}>
                                 <input type="radio" name="pay" value="cash" checked={paymentMethod === 'cash'} onChange={() => setPaymentMethod('cash')} className="accent-green-500 w-5 h-5"/>
-                                <div className="w-10 h-10 bg-green-600 rounded-lg flex items-center justify-center text-white">$</div>
-                                <div><div className="font-bold">Tiền mặt</div><div className="text-xs text-gray-400">Thanh toán tại quầy</div></div>
+                                <div className="w-10 h-10 bg-green-600 rounded-lg flex items-center justify-center text-white font-bold">$</div>
+                                <div>
+                                    <div className="font-bold">Tiền mặt</div>
+                                    <div className="text-xs text-gray-400">Thanh toán tại quầy</div>
+                                </div>
                             </label>
                         </div>
                     </div>
@@ -144,9 +234,19 @@ export default function Payment({ showtime, seats, combos, totalAmount, user }) 
                                 <span className="text-2xl font-bold text-red-500">{totalAmount.toLocaleString()} đ</span>
                             </div>
 
+                            {/* ✅ Thông báo khi dùng ví */}
+                            {paymentMethod === 'wallet' && hasEnoughBalance && (
+                                <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">
+                                    <p className="text-xs text-blue-400 flex items-center gap-2">
+                                        <Wallet size={12} />
+                                        Thanh toán bằng Ví Xu
+                                    </p>
+                                </div>
+                            )}
+
                             <button 
                                 onClick={handlePayment} 
-                                disabled={isProcessing}
+                                disabled={isProcessing || (paymentMethod === 'wallet' && !hasEnoughBalance)}
                                 className="w-full bg-red-600 hover:bg-red-700 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 mt-4 disabled:opacity-70 disabled:cursor-not-allowed transition-all"
                             >
                                 {isProcessing ? (
@@ -154,9 +254,18 @@ export default function Payment({ showtime, seats, combos, totalAmount, user }) 
                                         <Loader2 className="animate-spin" /> Đang xử lý...
                                     </>
                                 ) : (
-                                    "Thanh Toán Ngay"
+                                    <>
+                                        {paymentMethod === 'wallet' && '🪙 '}
+                                        Thanh Toán Ngay
+                                    </>
                                 )}
                             </button>
+
+                            {paymentMethod === 'wallet' && !hasEnoughBalance && (
+                                <p className="text-xs text-center text-red-400 mt-2">
+                                    Vui lòng nạp thêm {(totalAmount - walletBalance).toLocaleString()} Xu
+                                </p>
+                            )}
                         </div>
                     </div>
                 </div>

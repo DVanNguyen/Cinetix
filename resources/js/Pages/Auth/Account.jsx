@@ -3,52 +3,18 @@ import { Head, useForm, router } from '@inertiajs/react';
 import { 
   User, Ticket, LogOut, Clock, MapPin, QrCode, Star, CreditCard, 
   Camera, ShieldCheck, ChevronRight, Mail, Phone, Calendar, Lock,
-  Award, Zap, Crown, CheckCircle2, XCircle
+  Award, Zap, Crown, CheckCircle2, XCircle, Wallet, TrendingUp, TrendingDown,
+  AlertCircle, RefreshCw, X as XIcon
 } from 'lucide-react';
 import axios from 'axios';
 
-// --- CẤU HÌNH GIAO DIỆN HẠNG THÀNH VIÊN ---
+// RANK THEMES (giữ nguyên)
 const RANK_THEMES = {
-  'Bronze': {
-    color: 'text-orange-400',
-    bg: 'bg-orange-500/10',
-    border: 'border-orange-500/50',
-    gradient: 'from-orange-900 via-black to-gray-900',
-    icon: ShieldCheck,
-    label: 'Thành Viên Mới'
-  },
-  'Silver': {
-    color: 'text-gray-300',
-    bg: 'bg-gray-400/10',
-    border: 'border-gray-400/50',
-    gradient: 'from-gray-800 via-slate-900 to-black',
-    icon: Star,
-    label: 'Thân Thiết'
-  },
-  'Gold': {
-    color: 'text-yellow-400',
-    bg: 'bg-yellow-500/10',
-    border: 'border-yellow-500/50',
-    gradient: 'from-yellow-900 via-amber-950 to-black',
-    icon: Award,
-    label: 'V.I.P'
-  },
-  'Platinum': {
-    color: 'text-cyan-400',
-    bg: 'bg-cyan-500/10',
-    border: 'border-cyan-500/50',
-    gradient: 'from-cyan-900 via-blue-950 to-black',
-    icon: Zap,
-    label: 'Super V.I.P'
-  },
-  'Diamond': {
-    color: 'text-purple-400',
-    bg: 'bg-purple-500/10',
-    border: 'border-purple-500/50',
-    gradient: 'from-purple-900 via-fuchsia-950 to-black',
-    icon: Crown,
-    label: 'Legendary'
-  }
+  'Bronze': { color: 'text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/50', gradient: 'from-orange-900 via-black to-gray-900', icon: ShieldCheck, label: 'Thành Viên Mới' },
+  'Silver': { color: 'text-gray-300', bg: 'bg-gray-400/10', border: 'border-gray-400/50', gradient: 'from-gray-800 via-slate-900 to-black', icon: Star, label: 'Thân Thiết' },
+  'Gold': { color: 'text-yellow-400', bg: 'bg-yellow-500/10', border: 'border-yellow-500/50', gradient: 'from-yellow-900 via-amber-950 to-black', icon: Award, label: 'V.I.P' },
+  'Platinum': { color: 'text-cyan-400', bg: 'bg-cyan-500/10', border: 'border-cyan-500/50', gradient: 'from-cyan-900 via-blue-950 to-black', icon: Zap, label: 'Super V.I.P' },
+  'Diamond': { color: 'text-purple-400', bg: 'bg-purple-500/10', border: 'border-purple-500/50', gradient: 'from-purple-900 via-fuchsia-950 to-black', icon: Crown, label: 'Legendary' }
 };
 
 const Toast = ({ message, type, onClose }) => {
@@ -67,9 +33,78 @@ const Toast = ({ message, type, onClose }) => {
     );
 };
 
-export default function Account({ user, membership, stats, upcomingTickets, historyTickets }) {
+// ✅ MODAL HỦY VÉ
+const CancelTicketModal = ({ ticket, onClose, onConfirm }) => {
+    const [reason, setReason] = useState('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    const handleSubmit = async () => {
+        setIsSubmitting(true);
+        await onConfirm(ticket.booking_id, reason);
+        setIsSubmitting(false);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/90 z-[70] flex items-center justify-center p-4 backdrop-blur-sm" onClick={onClose}>
+            <div className="bg-[#1a1a1e] rounded-2xl p-6 max-w-md w-full border border-gray-700 shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center gap-3 mb-4">
+                    <div className="w-12 h-12 bg-red-500/10 rounded-full flex items-center justify-center">
+                        <AlertCircle className="w-6 h-6 text-red-500" />
+                    </div>
+                    <div>
+                        <h3 className="text-lg font-bold text-white">Xác nhận hủy vé</h3>
+                        <p className="text-xs text-gray-500">Hành động này không thể hoàn tác</p>
+                    </div>
+                </div>
+
+                <div className="bg-gray-900/50 rounded-lg p-4 mb-4 border border-gray-800">
+                    <p className="text-sm text-gray-400 mb-1">Phim: <span className="text-white font-bold">{ticket.movie.title}</span></p>
+                    <p className="text-sm text-gray-400 mb-1">Giờ chiếu: <span className="text-white">{ticket.showtime}</span></p>
+                    <p className="text-sm text-gray-400">Ghế: <span className="text-white font-mono">{ticket.seats}</span></p>
+                </div>
+
+                <div className="mb-4">
+                    <label className="text-xs text-gray-400 block mb-2">Lý do hủy (tùy chọn)</label>
+                    <textarea
+                        value={reason}
+                        onChange={(e) => setReason(e.target.value)}
+                        className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm resize-none focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none"
+                        rows="3"
+                        placeholder="Có việc đột xuất..."
+                    />
+                </div>
+
+                <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 mb-4">
+                    <p className="text-xs text-blue-400 flex items-center gap-2">
+                        <Wallet size={14} />
+                        Tiền sẽ được hoàn vào <span className="font-bold">Ví Xu</span> của bạn
+                    </p>
+                </div>
+
+                <div className="flex gap-3">
+                    <button
+                        onClick={onClose}
+                        className="flex-1 py-2.5 rounded-lg border border-gray-700 text-white hover:bg-gray-800 transition-colors font-bold"
+                    >
+                        Đóng
+                    </button>
+                    <button
+                        onClick={handleSubmit}
+                        disabled={isSubmitting}
+                        className="flex-1 py-2.5 rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors font-bold disabled:opacity-50"
+                    >
+                        {isSubmitting ? 'Đang xử lý...' : 'Xác nhận hủy'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+export default function Account({ user, membership, stats, upcomingTickets, historyTickets, walletTransactions = [] }) {
   const [activeTab, setActiveTab] = useState('tickets');
   const [selectedTicket, setSelectedTicket] = useState(null);
+  const [cancellingTicket, setCancellingTicket] = useState(null);
   const [toast, setToast] = useState(null); 
 
   useEffect(() => {
@@ -130,20 +165,38 @@ export default function Account({ user, membership, stats, upcomingTickets, hist
   const handleViewTicket = async (bookingId) => {
     try {
       const response = await axios.get(`/account/tickets/${bookingId}`);
-      // Với TicketResource, dữ liệu chi tiết vé cũng nằm trong .data
       setSelectedTicket(response.data.data); 
     } catch (error) {
         setToast({ type: 'error', message: 'Không thể tải vé.' });
     }
   };
 
+  // ✅ HỦY VÉ
+  const handleCancelTicket = async (bookingId, reason) => {
+    try {
+        const response = await axios.post(`/account/tickets/${bookingId}/cancel`, { reason });
+        
+        if (response.data.status === 'success') {
+            setToast({ type: 'success', message: response.data.message });
+            setCancellingTicket(null);
+            router.reload({ preserveScroll: true });
+        }
+    } catch (error) {
+        setToast({ 
+            type: 'error', 
+            message: error.response?.data?.message || 'Không thể hủy vé.' 
+        });
+        setCancellingTicket(null);
+    }
+  };
+
   const currentTheme = RANK_THEMES[membership.current_rank] || RANK_THEMES['Bronze'];
   const RankIcon = currentTheme.icon;
 
-  const TabButton = ({ id, icon: Icon, label }) => (
+  const TabButton = ({ id, icon: Icon, label, badge }) => (
     <button 
       onClick={() => setActiveTab(id)}
-      className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl transition-all duration-300 font-medium ${
+      className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl transition-all duration-300 font-medium relative ${
         activeTab === id 
         ? 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-lg shadow-red-900/30 translate-x-1' 
         : 'text-gray-400 hover:bg-gray-800/50 hover:text-white hover:translate-x-1'
@@ -151,15 +204,36 @@ export default function Account({ user, membership, stats, upcomingTickets, hist
     >
       <Icon size={18} className={activeTab === id ? 'animate-pulse' : ''} /> 
       {label}
+      {badge && (
+        <span className="ml-auto bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+            {badge}
+        </span>
+      )}
       {activeTab === id && <ChevronRight size={16} className="ml-auto opacity-70" />}
     </button>
   );
+
+  // ✅ Kiểm tra có thể hủy vé không (trước 30 phút)
+  const canCancelTicket = (showtime) => {
+    const showtimeDate = new Date(showtime);
+    const now = new Date();
+    const diff = (showtimeDate - now) / 1000 / 60; // phút
+    return diff >= 30;
+  };
 
   return (
     <div className="min-h-screen bg-[#0b0b0f] text-gray-100 font-sans selection:bg-red-500 selection:text-white pb-12">
       <Head title="Tài khoản của tôi" />
       <Toast message={toast?.message} type={toast?.type} onClose={() => setToast(null)} />
       
+      {cancellingTicket && (
+        <CancelTicketModal
+            ticket={cancellingTicket}
+            onClose={() => setCancellingTicket(null)}
+            onConfirm={handleCancelTicket}
+        />
+      )}
+
       <div className="relative h-60 w-full overflow-hidden">
         <div className="absolute inset-0 bg-gray-900">
             <div className={`absolute top-0 left-0 w-full h-full bg-gradient-to-b ${currentTheme.gradient} opacity-50`}></div>
@@ -191,13 +265,21 @@ export default function Account({ user, membership, stats, upcomingTickets, hist
             </div>
 
             <div className="flex gap-4 w-full md:w-auto">
+                 {/* ✅ VÍ XU */}
+                 <div className="flex-1 md:flex-none bg-gradient-to-br from-yellow-900/30 to-orange-900/30 p-4 rounded-xl border border-yellow-500/20 text-center min-w-[120px] relative overflow-hidden group/wallet">
+                     <div className="absolute inset-0 bg-yellow-500/5 group-hover/wallet:bg-yellow-500/10 transition-colors"></div>
+                     <p className="text-yellow-500 text-[10px] font-bold uppercase tracking-wider mb-1 flex items-center justify-center gap-1 relative z-10">
+                         <Wallet size={12} /> Ví Xu
+                     </p>
+                     <p className="text-2xl font-bold text-yellow-400 relative z-10">
+                         {user.wallet_balance?.toLocaleString() || '0'}
+                     </p>
+                     <p className="text-[9px] text-yellow-600 relative z-10">Xu</p>
+                 </div>
+                 
                  <div className="flex-1 md:flex-none bg-gray-800/50 p-4 rounded-xl border border-white/5 text-center min-w-[120px]">
                      <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider mb-1">Điểm tích lũy</p>
                      <p className={`text-2xl font-bold ${currentTheme.color}`}>{stats.points.toLocaleString()}</p>
-                 </div>
-                 <div className="flex-1 md:flex-none bg-gray-800/50 p-4 rounded-xl border border-white/5 text-center min-w-[120px]">
-                     <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider mb-1">Vouchers</p>
-                     <p className="text-2xl font-bold text-white">{stats.vouchers}</p>
                  </div>
             </div>
         </div>
@@ -206,6 +288,7 @@ export default function Account({ user, membership, stats, upcomingTickets, hist
             <div className="lg:col-span-1 space-y-2">
                 <div className="bg-gray-900/50 backdrop-blur-md rounded-2xl p-2 border border-white/5 sticky top-4">
                     <TabButton id="tickets" icon={Ticket} label="Vé của tôi" />
+                    <TabButton id="wallet" icon={Wallet} label="Ví Xu" badge={walletTransactions.length > 0 ? walletTransactions.length : null} />
                     <TabButton id="membership" icon={CreditCard} label="Hạng thành viên" />
                     <TabButton id="info" icon={User} label="Thông tin cá nhân" />
                     <TabButton id="security" icon={Lock} label="Bảo mật" />
@@ -226,8 +309,10 @@ export default function Account({ user, membership, stats, upcomingTickets, hist
                                 <Ticket className="text-red-500" /> Vé Sắp Chiếu
                             </h2>
                             
-                            {/* --- ĐÃ SỬA: upcomingTickets.data --- */}
-                            {upcomingTickets.data && upcomingTickets.data.length > 0 ? upcomingTickets.data.map(ticket => (
+                            {upcomingTickets.data && upcomingTickets.data.length > 0 ? upcomingTickets.data.map(ticket => {
+                                const canCancel = canCancelTicket(ticket.showtime_date);
+                                
+                                return (
                                 <div key={ticket.booking_id} className="relative group bg-[#16161a] rounded-2xl border border-gray-800 overflow-hidden flex flex-col sm:flex-row hover:border-red-500/50 transition-all duration-300 shadow-xl">
                                     <div className="w-full sm:w-40 h-48 sm:h-auto relative overflow-hidden">
                                         <img src={ticket.movie.poster_url} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt="Poster"/>
@@ -253,13 +338,23 @@ export default function Account({ user, membership, stats, upcomingTickets, hist
                                                 <span>Mã đặt vé</span>
                                                 <span className="text-white font-mono text-lg">{ticket.booking_code}</span>
                                             </div>
-                                            <button onClick={() => handleViewTicket(ticket.booking_id)} className="flex items-center gap-2 text-xs font-bold bg-white text-black px-4 py-2 rounded hover:bg-gray-200 transition-colors uppercase tracking-wider">
-                                                <QrCode size={14} /> Xem vé
-                                            </button>
+                                            <div className="flex gap-2">
+                                                {canCancel && (
+                                                    <button
+                                                        onClick={() => setCancellingTicket(ticket)}
+                                                        className="flex items-center gap-1 text-xs font-bold bg-red-500/10 text-red-500 border border-red-500/30 px-3 py-2 rounded hover:bg-red-500/20 transition-colors uppercase tracking-wider"
+                                                    >
+                                                        <XIcon size={12} /> Hủy vé
+                                                    </button>
+                                                )}
+                                                <button onClick={() => handleViewTicket(ticket.booking_id)} className="flex items-center gap-2 text-xs font-bold bg-white text-black px-4 py-2 rounded hover:bg-gray-200 transition-colors uppercase tracking-wider">
+                                                    <QrCode size={14} /> Xem vé
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
-                            )) : (
+                            )}) : (
                                 <div className="text-center py-12 bg-gray-800/30 rounded-2xl border border-dashed border-gray-700">
                                     <Ticket size={48} className="mx-auto mb-4 opacity-20" />
                                     <p className="text-gray-500">Bạn chưa có vé nào sắp chiếu</p>
@@ -268,7 +363,6 @@ export default function Account({ user, membership, stats, upcomingTickets, hist
 
                             <h2 className="text-xl font-bold text-white mt-8 mb-4">Lịch Sử</h2>
                             <div className="space-y-3">
-                                {/* --- ĐÃ SỬA: historyTickets.data --- */}
                                 {historyTickets.data && historyTickets.data.map(ticket => (
                                     <div key={ticket.booking_id} className="bg-[#121215] p-3 rounded-lg border border-gray-800/50 flex items-center justify-between hover:bg-gray-800 transition-colors group">
                                         <div className="flex items-center gap-4">
@@ -280,14 +374,91 @@ export default function Account({ user, membership, stats, upcomingTickets, hist
                                                 <p className="text-[11px] text-gray-500">{ticket.showtime} • {ticket.cinema}</p>
                                             </div>
                                         </div>
-                                        <span className="text-xs text-green-500 font-bold px-2 py-1 bg-green-900/10 rounded border border-green-900/20">Hoàn thành</span>
+                                        <span className={`text-xs font-bold px-2 py-1 rounded border ${
+                                            ticket.status === 'refunded' 
+                                                ? 'text-yellow-500 bg-yellow-900/10 border-yellow-900/20'
+                                                : ticket.status === 'cancelled' || ticket.status === 'expired'
+                                                ? 'text-red-500 bg-red-900/10 border-red-900/20'
+                                                : 'text-green-500 bg-green-900/10 border-green-900/20'
+                                        }`}>
+                                            {ticket.status === 'refunded' ? 'Đã hoàn tiền' : 
+                                             ticket.status === 'cancelled' ? 'Đã hủy' :
+                                             ticket.status === 'expired' ? 'Hết hạn' :
+                                             'Hoàn thành'}
+                                        </span>
                                     </div>
                                 ))}
                             </div>
                         </div>
                     )}
 
-                    {/* TAB: MEMBERSHIP */}
+                    {/* ✅ TAB: WALLET */}
+                    {activeTab === 'wallet' && (
+                        <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
+                            {/* Wallet Balance Card */}
+                            <div className="bg-gradient-to-br from-yellow-900/30 to-orange-900/30 rounded-2xl p-8 border border-yellow-500/20 mb-8 relative overflow-hidden">
+                                <div className="absolute top-0 right-0 w-64 h-64 bg-yellow-500/10 rounded-full blur-3xl -mr-32 -mt-32"></div>
+                                <div className="relative z-10">
+                                    <div className="flex items-center gap-2 text-yellow-500 mb-2">
+                                        <Wallet size={20} />
+                                        <span className="text-sm font-bold uppercase tracking-wider">Số dư ví</span>
+                                    </div>
+                                    <h3 className="text-4xl font-black text-yellow-400 mb-1">
+                                        {user.wallet_balance?.toLocaleString() || '0'}
+                                        <span className="text-xl ml-2">Xu</span>
+                                    </h3>
+                                    <p className="text-xs text-yellow-600">
+                                        ≈ {((user.wallet_balance || 0) / 1000).toFixed(0).toLocaleString()}K VNĐ
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* Transaction History */}
+                            <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                                <RefreshCw size={18} className="text-gray-500" />
+                                Lịch sử giao dịch
+                            </h2>
+
+                            {walletTransactions && walletTransactions.length > 0 ? (
+                                <div className="space-y-2">
+                                    {walletTransactions.map((tx) => (
+                                        <div key={tx.transaction_id} className="bg-[#16161a] rounded-xl p-4 border border-gray-800 hover:border-gray-700 transition-colors">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <div className="flex items-center gap-3">
+                                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                                                        tx.type === 'refund' || tx.type === 'deposit' || tx.type === 'bonus'
+                                                            ? 'bg-green-500/10 text-green-500'
+                                                            : 'bg-red-500/10 text-red-500'
+                                                    }`}>
+                                                        {tx.type === 'refund' || tx.type === 'deposit' ? <TrendingUp size={18} /> : <TrendingDown size={18} />}
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm font-bold text-white">{tx.description}</p>
+                                                        <p className="text-xs text-gray-500">{tx.created_at}</p>
+                                                    </div>
+                                                </div>
+                                                <div className="text-right">
+                                                    <p className={`text-lg font-bold ${tx.color}`}>
+                                                        {tx.formatted_amount}
+                                                    </p>
+                                                    <p className="text-xs text-gray-500">
+                                                        Số dư: {tx.balance_after.toLocaleString()}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="text-center py-12 bg-gray-800/30 rounded-2xl border border-dashed border-gray-700">
+                                    <Wallet size={48} className="mx-auto mb-4 opacity-20" />
+                                    <p className="text-gray-500">Chưa có giao dịch nào</p>
+                                </div>
+                            )}
+                            </div>
+                    )}
+
+                    {/* ✅ TAB: MEMBERSHIP (Hạng thành viên) */}
                     {activeTab === 'membership' && (
                         <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
                             <div className={`relative overflow-hidden rounded-2xl border ${currentTheme.border} bg-[#111] p-8 text-center mb-8`}>
@@ -324,7 +495,7 @@ export default function Account({ user, membership, stats, upcomingTickets, hist
                         </div>
                     )}
 
-                    {/* TAB: INFO */}
+                    {/* ✅ TAB: INFO (Thông tin cá nhân) */}
                     {activeTab === 'info' && (
                         <form onSubmit={handleUpdateProfile} className="animate-in fade-in slide-in-from-bottom-4 duration-300 max-w-xl mx-auto pt-4">
                             <h2 className="text-lg font-bold text-white mb-6 uppercase tracking-wider flex items-center gap-2">
@@ -391,7 +562,7 @@ export default function Account({ user, membership, stats, upcomingTickets, hist
                         </form>
                     )}
 
-                    {/* TAB: SECURITY */}
+                    {/* ✅ TAB: SECURITY (Đổi mật khẩu) */}
                     {activeTab === 'security' && (
                         <div className="animate-in fade-in slide-in-from-bottom-4 duration-300 max-w-xl mx-auto pt-4">
                             <h2 className="text-lg font-bold text-white mb-6 uppercase tracking-wider flex items-center gap-2">
@@ -448,18 +619,25 @@ export default function Account({ user, membership, stats, upcomingTickets, hist
         </div>
       </div>
 
-      {/* QR CODE MODAL */}
+      {/* ✅ QR CODE MODAL (Popup xem vé) */}
       {selectedTicket && (
         <div className="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setSelectedTicket(null)}>
             <div className="bg-[#1a1a1e] rounded-2xl p-6 max-w-sm w-full border border-gray-700 shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
                 <div className="text-center mb-6">
-                    {/* Các thuộc tính trong selectedTicket cũng nằm trong .data nếu bạn gọi API qua resource, nhưng vì ở trên mình dùng axios.get, mình đã xử lý selectedTicket(response.data.data) ở hàm handleViewTicket rồi, nên ở đây dùng trực tiếp */}
                     <h3 className="text-lg font-bold text-white">{selectedTicket.movie.title}</h3>
                     <p className="text-xs text-gray-500 mt-1">{selectedTicket.cinema} - {selectedTicket.room}</p>
                 </div>
                 
-                <div className="bg-white p-4 rounded-xl mb-6 shadow-inner">
-                    <img src={selectedTicket.qr_code || 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=Example'} alt="QR Code" className="w-full mix-blend-multiply" />
+                <div className="bg-white p-4 rounded-xl mb-6 shadow-inner relative overflow-hidden group">
+                    <img src={selectedTicket.qr_code} alt="QR Code" className="w-full mix-blend-multiply relative z-10" />
+                    {/* Watermark nếu vé đã dùng/hủy */}
+                    {selectedTicket.status !== 'pending' && selectedTicket.status !== 'confirmed' && (
+                        <div className="absolute inset-0 flex items-center justify-center z-20 bg-white/80 backdrop-blur-sm">
+                            <span className="text-red-600 font-black text-2xl -rotate-12 border-4 border-red-600 px-4 py-2 rounded-lg opacity-80 uppercase">
+                                {selectedTicket.status === 'refunded' ? 'Đã hoàn tiền' : 'Không khả dụng'}
+                            </span>
+                        </div>
+                    )}
                 </div>
                 
                 <div className="space-y-3">

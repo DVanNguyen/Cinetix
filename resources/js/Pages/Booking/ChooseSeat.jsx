@@ -12,7 +12,7 @@ export default function ChooseSeat({
     soldSeatIds: initialSold, 
     lockedSeatIds: initialLocked,
     lockedSeatsWithExpiry,
-    mySelectedSeatIds, // ✅ NEW: Ghế đang chọn của mình
+    mySelectedSeatIds, // Ghế đang chọn của mình
     combos 
 }) {
     
@@ -22,7 +22,7 @@ export default function ChooseSeat({
     const [selectedCombos, setSelectedCombos] = useState({});
     const [isShowtimePast, setIsShowtimePast] = useState(false);
 
-    // ✅ FIX 2: Restore ghế đã chọn từ server sau khi F5
+    // Restore ghế đã chọn từ server sau khi F5
     useEffect(() => {
         if (!mySelectedSeatIds || mySelectedSeatIds.length === 0 || !seats) return;
 
@@ -136,12 +136,12 @@ export default function ChooseSeat({
         }
 
         channel.listen('.seat.locked', (e) => {
-            console.log("🔒 Ghế vừa bị khóa:", e);
+            console.log(" Ghế vừa bị khóa:", e);
             setRealtimeLocked(prev => [...new Set([...prev, e.seatId])]);
         });
 
         channel.listen('.seat.unlocked', (e) => {
-            console.log("🔓 Ghế vừa được mở:", e);
+            console.log(" Ghế vừa được mở:", e);
             setRealtimeLocked(prev => prev.filter(id => id !== e.seatId));
         });
 
@@ -290,9 +290,6 @@ export default function ChooseSeat({
                     </button>
                     <div>
                         <h1 className="font-bold text-lg leading-tight uppercase tracking-wide text-white">{movie.title}</h1>
-                        <p className="text-xs text-gray-400 flex items-center gap-1">
-                            {cinema.name} • {room.name} • {showtime.start_time}
-                        </p>
                     </div>
                 </div>
                 <Link href="/" className="p-2 hover:bg-gray-800 rounded-full transition text-gray-400 hover:text-white">
@@ -400,9 +397,13 @@ export default function ChooseSeat({
                                 <span className="flex items-center gap-2 text-gray-500"><Clock size={16}/> Suất chiếu</span> 
                                 <div className="text-right">
                                     <span className="font-bold text-red-500 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20">
-                                        {showtime.start_time.substring(11, 16)}
+                                        {new Date(showtime.start_time.replace(' ', 'T')).toLocaleTimeString('vi-VN', { 
+                                            hour: '2-digit', 
+                                            minute: '2-digit', 
+                                            hour12: false 
+                                        })}
                                     </span>
-                                </div>
+                                </div>  
                             </div>
                         </div>
 

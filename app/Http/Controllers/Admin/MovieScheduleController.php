@@ -135,14 +135,14 @@ class MovieScheduleController extends Controller
             $date = $today->copy()->addDays($i);
             $dateStr = $date->format('Y-m-d');
 
-            // BƯỚC 1: KIỂM TRA DB (Giữ nguyên logic cũ)
+            // KIỂM TRA DB (Giữ nguyên logic cũ)
             $savedMovies = MovieSchedule::getListForDate($dateStr);
 
             if ($savedMovies->count() > 0) {
                 $displayMovies = $savedMovies;
                 $source = 'database';
             } else {
-                // BƯỚC 2: CHẠY THUẬT TOÁN MỚI
+                // CHẠY THUẬT TOÁN MỚI
                 $displayMovies = $this->generateAutoSchedule($i, $date, $availableMovies, $upcomingMovies);
                 $source = 'auto';
             }
@@ -168,7 +168,6 @@ class MovieScheduleController extends Controller
     }
 
     /**
-     * THUẬT TOÁN GỢI Ý THÔNG MINH (UPDATED)
      * Priority: Ra mắt hôm nay > Trùng Thứ trong tuần > Rating cao
      */
     private function generateAutoSchedule($dayIndex, $date, $availableMovies, $upcomingMovies)

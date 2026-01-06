@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers;
 
-// Đảm bảo import đúng file Resource bạn đã tạo trong thư mục Account
 use App\Http\Resources\TicketResource; 
 use App\Models\Booking;
+use App\Models\WalletTransaction;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
@@ -15,7 +15,7 @@ use Inertia\Inertia;
 class AccountController extends Controller
 {
     /**
-     * Hiển thị trang tài khoản
+     * ✅ Hiển thị trang tài khoản (có thêm wallet info)
      */
     public function index()
     {
@@ -26,43 +26,59 @@ class AccountController extends Controller
             return redirect()->route('login');
         }
 
-        // --- SỬA ĐOẠN NÀY: Tạm thời gán cứng là 0 ---
-        // $totalPoints = DB::table('loyalty_points')->where('user_id', $user->user_id)->sum('points');
-        // $activeVouchersCount = DB::table('user_vouchers')->where...
-        
-        $totalPoints = 0;        // Mặc định 0 điểm
-        $activeVouchersCount = 0; // Mặc định 0 voucher
-        // ---------------------------------------------
-
-        // 2. Tự tính Hạng (Rank) dựa trên điểm (0 điểm -> Bronze)
+        // Membership (giữ nguyên)
+        $totalPoints = 0;        
+        $activeVouchersCount = 0; 
         $rankName = $this->calculateRankFromPoints($totalPoints);
-
-        // 3. Tính hạng tiếp theo
         $nextRankInfo = $this->calculateNextRank($rankName);
 
-        // 4. Lấy vé (Giữ nguyên)
+        // ✅ Lấy vé (CÓ THỂ HỦY)
         $upcoming = Booking::with(['showtime.movie', 'showtime.room.cinema', 'bookingSeats.seat'])
             ->where('user_id', $user->user_id)
             ->whereHas('showtime', fn($q) => $q->where('start_time', '>', now()))
-            ->whereIn('payment_status', ['paid'])
-            ->orderBy('created_at', 'desc')
-            ->take(5)->get();
-
-        $history = Booking::with(['showtime.movie', 'showtime.room.cinema'])
-            ->where('user_id', $user->user_id)
-            ->whereHas('showtime', fn($q) => $q->where('start_time', '<', now()))
-            ->whereIn('payment_status', ['paid'])
+            ->whereIn('status', [Booking::STATUS_PENDING, Booking::STATUS_CONFIRMED])
+            ->whereIn('payment_status', ['paid', 'pending'])
             ->orderBy('created_at', 'desc')
             ->take(10)->get();
+
+        // ✅ Lịch sử (bao gồm cả vé đã hủy)
+        $history = Booking::with(['showtime.movie', 'showtime.room.cinema'])
+            ->where('user_id', $user->user_id)
+            ->where(function($q) {
+                $q->whereHas('showtime', fn($sq) => $sq->where('start_time', '<', now()))
+                  ->orWhereIn('status', [Booking::STATUS_CANCELLED, Booking::STATUS_REFUNDED, Booking::STATUS_EXPIRED]);
+            })
+            ->orderBy('created_at', 'desc')
+            ->take(20)->get();
+
+        // ✅ Lịch sử giao dịch ví (10 giao dịch gần nhất)
+        $walletTransactions = WalletTransaction::where('user_id', $user->user_id)
+            ->orderBy('created_at', 'desc')
+            ->take(10)
+            ->get()
+            ->map(function($transaction) {
+                return [
+                    'transaction_id' => $transaction->transaction_id,
+                    'type' => $transaction->type,
+                    'amount' => $transaction->amount,
+                    'formatted_amount' => $transaction->formatted_amount,
+                    'description' => $transaction->description,
+                    'balance_after' => $transaction->balance_after,
+                    'created_at' => $transaction->created_at->format('d/m/Y H:i'),
+                    'icon' => $transaction->icon,
+                    'color' => $transaction->color
+                ];
+            });
 
         return Inertia::render('Auth/Account', [
             'user' => [
                 'user_id'       => $user->user_id,
-                'full_name'     => $user->full_name,
+                'full_name'     => $user->name,
                 'email'         => $user->email,
                 'phone'         => $user->phone,
-                'avatar_url'    => $user->avatar_url ?? 'https://ui-avatars.com/api/?name=' . urlencode($user->full_name),
-                'date_of_birth' => $user->date_of_birth,
+                'avatar_url'    => $user->avatar_url ?? 'https://ui-avatars.com/api/?name=' . urlencode($user->name),
+                'wallet_balance' => $user->wallet_balance,
+                'formatted_wallet_balance' => $user->formatted_wallet_balance,
             ],
             'membership' => [
                 'current_rank'     => $rankName,
@@ -73,14 +89,73 @@ class AccountController extends Controller
             'stats' => [
                 'points'   => (int)$totalPoints,
                 'vouchers' => $activeVouchersCount,
+                'wallet_balance' => $user->wallet_balance,
             ],
             'upcomingTickets' => TicketResource::collection($upcoming),
             'historyTickets'  => TicketResource::collection($history),
+            'walletTransactions' => $walletTransactions,
         ]);
     }
 
     /**
-     * Cập nhật thông tin cá nhân
+     * ✅ HỦY VÉ VÀ HOÀN TIỀN
+     */
+    public function cancelTicket(Request $request, $bookingId)
+    {
+        try {
+            /** @var \App\Models\User */
+            $user = Auth::user();
+            
+            $booking = Booking::with('showtime')->findOrFail($bookingId);
+
+            // 1. Kiểm tra quyền sở hữu
+            if ($booking->user_id !== $user->user_id) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Bạn không có quyền hủy vé này'
+                ], 403);
+            }
+
+            // 2. Kiểm tra có thể hủy không
+            if (!$booking->canCancel()) {
+                $showtime = $booking->showtime;
+                $minutesLeft = now()->diffInMinutes($showtime->start_time, false);
+                
+                if ($minutesLeft < 30) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'Chỉ có thể hủy vé trước 30 phút giờ chiếu'
+                    ], 400);
+                }
+
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Không thể hủy vé này'
+                ], 400);
+            }
+
+            // 3. Hủy vé và hoàn tiền
+            $booking->cancelAndRefund($request->input('reason', 'Khách hàng hủy'));
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Hủy vé thành công! ' . 
+                    ($booking->payment_method !== Booking::PAYMENT_CASH 
+                        ? 'Tiền đã được hoàn vào ví của bạn.' 
+                        : ''),
+                'refund_amount' => $booking->refund_amount
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * ✅ Cập nhật thông tin cá nhân (giữ nguyên)
      */
     public function updateProfile(Request $request)
     {
@@ -103,12 +178,12 @@ class AccountController extends Controller
     }
 
     /**
-     * Upload avatar
+     * ✅ Upload avatar (giữ nguyên)
      */
     public function uploadAvatar(Request $request)
     {
         $request->validate([
-            'avatar' => 'required|image|mimes:jpeg,png,jpg|max:5120' // Max 5MB
+            'avatar' => 'required|image|mimes:jpeg,png,jpg|max:5120'
         ]);
 
         /** @var \App\Models\User $user */
@@ -118,7 +193,6 @@ class AccountController extends Controller
             return redirect()->route('login');
         }
 
-        // Xóa ảnh cũ trên S3/Local nếu không phải ảnh mặc định từ UI Avatars
         if ($user->avatar_url && !str_contains($user->avatar_url, 'ui-avatars.com')) {
              $oldPath = str_replace('/storage/', '', $user->avatar_url);
              if(Storage::disk('public')->exists($oldPath)) {
@@ -136,7 +210,7 @@ class AccountController extends Controller
     }
 
     /**
-     * Đổi mật khẩu
+     * ✅ Đổi mật khẩu (giữ nguyên)
      */
     public function changePassword(Request $request)
     {
@@ -153,7 +227,7 @@ class AccountController extends Controller
     }
 
     /**
-     * API Lấy chi tiết vé (cho Modal QR Code)
+     * ✅ API: Chi tiết vé
      */
     public function getTicketDetail($bookingId)
     {
@@ -167,11 +241,42 @@ class AccountController extends Controller
         return new TicketResource($booking);
     }
 
-    // ========== HELPER METHODS (Xử lý logic hạng thành viên) ==========
-
     /**
-     * Tính hạng dựa trên tổng điểm tích lũy
+     * ✅ API: Lịch sử giao dịch ví (Trang riêng - optional)
      */
+    public function walletHistory(Request $request)
+    {
+        /** @var \App\Models\User */
+        $user = Auth::user();
+
+        $type = $request->query('type'); // filter: refund, payment, deposit...
+        $startDate = $request->query('start_date');
+        $endDate = $request->query('end_date');
+
+        $query = WalletTransaction::where('user_id', $user->user_id);
+
+        if ($type) {
+            $query->where('type', $type);
+        }
+
+        if ($startDate && $endDate) {
+            $query->betweenDates($startDate, $endDate);
+        }
+
+        $transactions = $query->orderBy('created_at', 'desc')
+            ->paginate(20);
+
+        return Inertia::render('Auth/WalletHistory', [
+            'transactions' => $transactions,
+            'user' => [
+                'wallet_balance' => $user->wallet_balance,
+                'formatted_wallet_balance' => $user->formatted_wallet_balance
+            ]
+        ]);
+    }
+
+    // ========== HELPER METHODS ==========
+
     private function calculateRankFromPoints($points) {
         if ($points >= 999999) return 'Diamond';
         if ($points >= 10000) return 'Platinum';
@@ -180,23 +285,11 @@ class AccountController extends Controller
         return 'Bronze';
     }
 
-    /**
-     * Tính điểm cần thiết để lên hạng tiếp theo
-     */
     private function calculateNextRank($currentRank) {
         $ranks = ['Bronze', 'Silver', 'Gold', 'Platinum', 'Diamond'];
-        
-        // Mốc điểm cần đạt được của từng hạng
-        $thresholds = [
-            'Silver' => 3000, 
-            'Gold' => 5000, 
-            'Platinum' => 10000, 
-            'Diamond' => 999999
-        ];
-
+        $thresholds = ['Silver' => 3000, 'Gold' => 5000, 'Platinum' => 10000, 'Diamond' => 999999];
         $index = array_search($currentRank, $ranks);
         
-        // Nếu tìm thấy hạng hiện tại và chưa phải hạng cuối cùng (Diamond)
         if ($index !== false && isset($ranks[$index + 1])) {
             $nextRank = $ranks[$index + 1];
             return [

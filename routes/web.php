@@ -21,94 +21,142 @@ use App\Http\Controllers\Admin\UserAdminController;
 
 /*
 |--------------------------------------------------------------------------
-| ROUTES DÀNH CHO KHÁCH (PUBLIC)
+| ROUTES DÀNH CHO KHÁCH (PUBLIC - Không cần đăng nhập)
 |--------------------------------------------------------------------------
 */
 
+// Trang chủ & Movies
 Route::get('/', [MovieController::class, 'index'])->name('home');
-Route::get('/movies/{id}', [ShowController::class, 'show'])->name('movies.show');
+
+// API công khai
 Route::get('/api/cinemas', [CinemaController::class, 'getCinemas']);
 
-// Booking & Payment
-Route::get('/booking/{showtime}/choose-seat', [ChooseSeatController::class, 'show'])->name('booking.choose_seat');
-Route::post('/booking/lock-seat', [ChooseSeatController::class, 'lockSeat']);
-Route::post('/booking/unlock-seat', [ChooseSeatController::class, 'unlockSeat']);
-Route::get('/showtimes/{showtime}/seat-status', [ChooseSeatController::class, 'getSeatStatus'])->name('showtimes.seat-status');
-
-Route::get('/payment', [PaymentController::class, 'index'])->name('payment.index');
-Route::post('/payment/process', [PaymentController::class, 'process'])->name('payment.process');
-Route::get('/payment/return', [PaymentController::class, 'paymentReturn'])->name('payment.return');
-Route::get('/payment/result', [PaymentController::class, 'result'])->name('payment.result');
-
-// Account
-Route::middleware('auth')->group(function () {
-    Route::get('/account', [AccountController::class, 'index'])->name('account.index');
-    Route::post('/account/update-profile', [AccountController::class, 'updateProfile'])->name('account.update-profile');
-    Route::post('/account/upload-avatar', [AccountController::class, 'uploadAvatar'])->name('account.upload-avatar');
-    Route::post('/account/change-password', [AccountController::class, 'changePassword'])->name('account.change-password');
-    Route::get('/account/tickets/{booking}', [AccountController::class, 'getTicketDetail'])->name('account.ticket-detail');
-});
-
 /*
 |--------------------------------------------------------------------------
-| ROUTES XÁC THỰC
+| ROUTES XÁC THỰC (Authentication)
 |--------------------------------------------------------------------------
 */
+
 Route::middleware('guest')->group(function () {
-    Route::get('/login', function () {
-        return Inertia::render('Auth/AuthScreen');
-    })->name('login');
-    Route::post('/login', [AuthController::class, 'login']);
-    Route::post('/register', [AuthController::class, 'register']);
+    // Hiển thị form login/register (có thể nhận intended URL)
+    Route::get('/login', [AuthController::class, 'show'])->name('login');
+    Route::get('/auth', [AuthController::class, 'show'])->name('auth'); // Alias
+    
+    // Xử lý đăng nhập và đăng ký
+    Route::post('/login', [AuthController::class, 'login'])->name('login.post');
+    Route::post('/register', [AuthController::class, 'register'])->name('register');
 });
 
-Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth')->name('logout');
+// Đăng xuất (cần auth)
+Route::post('/logout', [AuthController::class, 'logout'])
+    ->middleware('auth')
+    ->name('logout');
+
+// Optional: API kiểm tra auth status
+Route::get('/api/check-auth', [AuthController::class, 'checkAuth'])
+    ->name('auth.check');
 
 /*
 |--------------------------------------------------------------------------
-| ROUTES DÀNH RIÊNG CHO ADMIN
+| ROUTES CẦN ĐĂNG NHẬP (Protected Routes)
 |--------------------------------------------------------------------------
 */
-Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () {
 
-    // 1. DASHBOARD
-    // URL: /admin/dashboard | Name: admin.dashboard
-    Route::get('/dashboard', [AdminDashboardController::class, 'index'])->name('dashboard');
+Route::middleware(['auth'])->group(function () {
     
-    // API Dashboard
-    Route::get('/dashboard/realtime', [AdminDashboardController::class, 'getRealtimeStats'])->name('dashboard.realtime');
-    Route::get('/dashboard/movie-performance', [AdminDashboardController::class, 'getMoviePerformance'])->name('dashboard.movies'); // Đã sửa tên thừa
-    Route::get('/dashboard/custom-stats', [AdminDashboardController::class, 'getCustomStats'])->name('dashboard.custom');
-    Route::get('/dashboard/hourly-revenue', [AdminDashboardController::class, 'getHourlyRevenue'])->name('dashboard.hourly');
-
-    // 2. QUẢN LÝ PHIM
-    Route::get('/movies', [MovieScheduleController::class, 'index'])->name('movies.index');
-    Route::post('/movies', [MovieScheduleController::class, 'store'])->name('movies.store');
-    Route::put('/movies/{id}', [MovieScheduleController::class, 'update'])->name('movies.update');
-    Route::delete('/movies/{id}', [MovieScheduleController::class, 'destroy'])->name('movies.destroy');
-
-    // 3. XẾP LỊCH CHIẾU (Drag & Drop)
-    Route::get('/movie-schedule', [MovieScheduleController::class, 'schedule'])->name('movies.schedule');
-    Route::put('/movie-schedule/{date}', [MovieScheduleController::class, 'saveSchedule'])->name('movies.save_schedule');
-
-    // 4. QUẢN LÝ SUẤT CHIẾU (ShowtimeController V2)
-    Route::get('/showtimes', [ShowtimeController::class, 'index'])->name('showtimes.index');
+    // Movie Detail & Booking (CẦN ĐĂNG NHẬP)
+    Route::get('/movies/{id}', [ShowController::class, 'show'])->name('movies.show');
     
-    // Xếp lịch tự động (1 ngày)
-    Route::post('/showtimes/auto', [ShowtimeController::class, 'generateAuto'])->name('showtimes.auto');
-    
-    // Xếp lịch toàn bộ (Nhiều ngày) -> Đã sửa tên bỏ 'admin.' thừa
-    Route::post('/showtimes/bulk-generate', [ShowtimeController::class, 'bulkGenerate'])->name('showtimes.bulk');
-    
-    // Xóa suất chiếu (DELETE)
-    Route::delete('/showtimes/{id}', [ShowtimeController::class, 'destroy'])->name('showtimes.destroy');
+    // Booking Flow
+    Route::get('/booking/{showtime}/choose-seat', [ChooseSeatController::class, 'show'])
+        ->name('booking.choose_seat');
+    Route::post('/booking/lock-seat', [ChooseSeatController::class, 'lockSeat'])
+        ->name('booking.lock');
+    Route::post('/booking/unlock-seat', [ChooseSeatController::class, 'unlockSeat'])
+        ->name('booking.unlock');
+    Route::get('/showtimes/{showtime}/seat-status', [ChooseSeatController::class, 'getSeatStatus'])
+        ->name('showtimes.seat-status');
 
-    // ✅ BỔ SUNG CÁC ROUTE CÒN THIẾU CỦA V2 (Để sau này dùng)
-    Route::post('/showtimes/bulk-destroy', [ShowtimeController::class, 'bulkDestroy'])->name('showtimes.bulk-destroy');
-    Route::post('/showtimes/clear-day', [ShowtimeController::class, 'clearDay'])->name('showtimes.clear-day');
-    Route::get('/showtimes/check-changes', [ShowtimeController::class, 'checkChanges'])->name('showtimes.check-changes');
+    // Payment Flow
+    Route::get('/payment', [PaymentController::class, 'index'])->name('payment.index');
+    Route::post('/payment/process', [PaymentController::class, 'process'])->name('payment.process');
+    Route::get('/payment/return', [PaymentController::class, 'paymentReturn'])->name('payment.return');
+    Route::get('/payment/result', [PaymentController::class, 'result'])->name('payment.result');
 
-    // 5. BOOKINGS & USERS
+    // Account Management
+    Route::prefix('account')->name('account.')->group(function () {
+        Route::get('/', [AccountController::class, 'index'])->name('index');
+        Route::post('/update-profile', [AccountController::class, 'updateProfile'])->name('update-profile');
+        Route::post('/upload-avatar', [AccountController::class, 'uploadAvatar'])->name('upload-avatar');
+        Route::post('/change-password', [AccountController::class, 'changePassword'])->name('change-password');
+        Route::get('/tickets/{booking}', [AccountController::class, 'getTicketDetail'])->name('ticket-detail');
+    });
+});
+
+/*
+|--------------------------------------------------------------------------
+| ROUTES DÀNH RIÊNG CHO ADMIN (Cần auth + role admin)
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(function () {
+
+    // ========== 1. DASHBOARD ==========
+    Route::get('/dashboard', [AdminDashboardController::class, 'index'])
+        ->name('dashboard');
+    
+    // API Dashboard Realtime
+    Route::prefix('dashboard')->name('dashboard.')->group(function () {
+        Route::get('/realtime', [AdminDashboardController::class, 'getRealtimeStats'])->name('realtime');
+        Route::get('/occupancy-by-cinema', [AdminDashboardController::class, 'getOccupancyByCinema'])->name('occupancy');
+        Route::get('/movie-performance', [AdminDashboardController::class, 'getMoviePerformance'])->name('movies');
+        Route::get('/custom-stats', [AdminDashboardController::class, 'getCustomStats'])->name('custom');
+        Route::get('/hourly-revenue', [AdminDashboardController::class, 'getHourlyRevenue'])->name('hourly');
+    });
+
+    // ========== 2. QUẢN LÝ PHIM ==========
+    Route::prefix('movies')->name('movies.')->group(function () {
+        Route::get('/', [MovieScheduleController::class, 'index'])->name('index');
+        Route::post('/', [MovieScheduleController::class, 'store'])->name('store');
+        Route::put('/{id}', [MovieScheduleController::class, 'update'])->name('update');
+        Route::delete('/{id}', [MovieScheduleController::class, 'destroy'])->name('destroy');
+    });
+
+    // ========== 3. XẾP LỊCH CHIẾU (Drag & Drop) ==========
+    Route::prefix('movie-schedule')->name('movies.')->group(function () {
+        Route::get('/', [MovieScheduleController::class, 'schedule'])->name('schedule');
+        Route::put('/{date}', [MovieScheduleController::class, 'saveSchedule'])->name('save_schedule');
+    });
+
+    // ========== 4. QUẢN LÝ SUẤT CHIẾU (Timeline) ==========
+    Route::prefix('showtimes')->name('showtimes.')->group(function () {
+        // Trang chính - Timeline
+        Route::get('/', [ShowtimeController::class, 'index'])->name('index');
+        
+        // Xếp lịch tự động
+        Route::post('/auto', [ShowtimeController::class, 'generateAuto'])->name('auto');
+        Route::post('/bulk-generate', [ShowtimeController::class, 'bulkGenerate'])->name('bulk');
+        
+        // Xóa suất chiếu
+        Route::delete('/{id}', [ShowtimeController::class, 'destroy'])->name('destroy');
+        Route::post('/bulk-destroy', [ShowtimeController::class, 'bulkDestroy'])->name('bulk-destroy');
+        Route::post('/clear-day', [ShowtimeController::class, 'clearDay'])->name('clear-day');
+        
+        // API kiểm tra
+        Route::get('/check-changes', [ShowtimeController::class, 'checkChanges'])->name('check-changes');
+    });
+
+    // ========== 5. QUẢN LÝ BOOKINGS & USERS ==========
     Route::get('/bookings', [BookingAdminController::class, 'index'])->name('bookings.index');
     Route::get('/users', [UserAdminController::class, 'index'])->name('users.index');
+});
+
+/*
+|--------------------------------------------------------------------------
+| FALLBACK ROUTE (404)
+|--------------------------------------------------------------------------
+*/
+
+Route::fallback(function () {
+    return Inertia::render('Errors/404');
 });

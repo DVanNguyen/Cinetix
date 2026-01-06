@@ -11,20 +11,32 @@ use Inertia\Inertia;
 
 class AuthController extends Controller
 {
-    // Hiển thị form
-    public function show()
+    /**
+     * ✅ Hiển thị form đăng nhập/đăng ký
+     * Nhận intended URL từ query hoặc session
+     */
+    public function show(Request $request)
     {
-        return Inertia::render('Auth/AuthScreen');
+        // Lấy intended URL từ nhiều nguồn (ưu tiên query > session > default)
+        $intendedUrl = $request->query('intended') 
+                    ?? $request->session()->get('url.intended')
+                    ?? '/';
+
+        return Inertia::render('Auth/AuthScreen', [
+            'intended_url' => $intendedUrl
+        ]);
     }
 
-    // --- LOGIC ĐĂNG KÝ (INSERT VÀO CSDL) ---
+    /**
+     * ✅ ĐĂNG KÝ - Với redirect về intended URL
+     */
     public function register(Request $request)
     {
-        // 1. Validate: Kiểm tra dữ liệu đầu vào
+        // 1. Validate dữ liệu
         $request->validate([
             'name' => 'required|string|max:255',
-            'email' => 'required|string|email|max:255|unique:users', // unique:users -> Kiểm tra email đã tồn tại trong bảng users chưa
-            'password' => 'required|string|min:6|confirmed', // confirmed -> Phải khớp với password_confirmation
+            'email' => 'required|string|email|max:255|unique:users',
+            'password' => 'required|string|min:6|confirmed',
             'phone' => 'required|string|max:15',
         ], [
             'email.unique' => 'Email này đã được đăng ký tài khoản khác.',
@@ -32,61 +44,125 @@ class AuthController extends Controller
             'password.min' => 'Mật khẩu phải từ 6 ký tự trở lên.'
         ]);
 
-        // 2. Insert vào CSDL (Tạo user mới)
+        // 2. Tạo user mới
         $user = User::create([
             'name' => $request->name,
             'email' => $request->email,
-            'password' => Hash::make($request->password), // Bắt buộc mã hóa mật khẩu trước khi lưu
+            'password' => Hash::make($request->password),
             'phone' => $request->phone,
-            'role' => 'customer' // Mặc định là khách hàng
+            'role' => 'customer'
         ]);
 
-        // 3. Đăng nhập luôn cho user vừa tạo
+        // 3. Đăng nhập luôn
         Auth::login($user);
 
-        // 4. Chuyển hướng về trang chủ
-        return redirect()->route('home');
+        // ✅ 4. Lấy intended URL và redirect
+        $intendedUrl = $request->input('intended_url') 
+                    ?? $request->session()->get('url.intended')
+                    ?? '/';
+
+        // Xóa intended URL khỏi session
+        $request->session()->forget('url.intended');
+
+        // Redirect về trang đích
+        return redirect($intendedUrl)->with('success', 'Đăng ký thành công! Chào mừng bạn đến với CineTix.');
     }
 
-    // --- LOGIC ĐĂNG NHẬP (KIỂM TRA CSDL) ---
+    /**
+     * ✅ ĐĂNG NHẬP - Với redirect về intended URL
+     */
     public function login(Request $request)
     {
-        // 1. Validate dữ liệu gửi lên
+        // 1. Validate dữ liệu
         $credentials = $request->validate([
             'email' => ['required', 'email'],
             'password' => ['required'],
+        ], [
+            'email.required' => 'Vui lòng nhập email.',
+            'email.email' => 'Email không hợp lệ.',
+            'password.required' => 'Vui lòng nhập mật khẩu.',
         ]);
 
-        // 2. Truy vấn CSDL & Kiểm tra mật khẩu
-        // Hàm Auth::attempt sẽ tự động:
-        // - Tìm trong bảng users xem có email này không.
-        // - Nếu có, nó lấy mật khẩu trong DB ra so sánh với mật khẩu người dùng nhập (đã hash).
+        // 2. Thử đăng nhập
         if (Auth::attempt($credentials, $request->boolean('remember'))) {
             $user = Auth::user();
-            if ($user->role === 'admin') {
-                // Nếu là Admin -> Chuyển sang trang Admin
-                return redirect()->intended(route('admin.dashboard'));
-            }
             
-            // Nếu đúng hết -> Tạo lại session (để bảo mật)
+            // Regenerate session để bảo mật
             $request->session()->regenerate();
 
-            // Chuyển hướng về trang chủ (hoặc trang trước đó)
-            return redirect()->intended('/');
+            // ✅ Lấy intended URL
+            $intendedUrl = $request->input('intended_url') 
+                        ?? $request->session()->get('url.intended')
+                        ?? '/';
+
+            // Xóa intended URL khỏi session
+            $request->session()->forget('url.intended');
+
+            // Kiểm tra role và redirect phù hợp
+            if ($user->role === 'admin') {
+                // Admin luôn về dashboard, bỏ qua intended URL
+                return redirect()->route('admin.dashboard')
+                    ->with('success', 'Chào mừng Admin!');
+            }
+
+            // Customer redirect về intended URL hoặc home
+            return redirect($intendedUrl)
+                ->with('success', 'Đăng nhập thành công!');
         }
 
-        // 3. Nếu sai (Không tồn tại user hoặc sai pass) -> Trả về lỗi
+        // 3. Đăng nhập thất bại
         throw ValidationException::withMessages([
             'email' => 'Thông tin đăng nhập không chính xác (Sai email hoặc mật khẩu).',
         ]);
     }
 
-    // Đăng xuất
+    /**
+     * ✅ ĐĂNG XUẤT
+     */
     public function logout(Request $request)
     {
         Auth::logout();
+        
+        // Invalidate session
         $request->session()->invalidate();
         $request->session()->regenerateToken();
-        return redirect('/');
+        
+        return redirect('/')->with('success', 'Đã đăng xuất thành công.');
+    }
+
+    /**
+     * ✅ API: Kiểm tra trạng thái đăng nhập (Optional - cho AJAX)
+     */
+    public function checkAuth(Request $request)
+    {
+        if (Auth::check()) {
+            return response()->json([
+                'authenticated' => true,
+                'user' => [
+                    'id' => Auth::id(),
+                    'name' => Auth::user()->name,
+                    'email' => Auth::user()->email,
+                    'role' => Auth::user()->role,
+                ]
+            ]);
+        }
+
+        return response()->json([
+            'authenticated' => false
+        ], 401);
+    }
+
+    /**
+     * ✅ Xử lý khi user cố truy cập trang cần auth (middleware redirect)
+     */
+    public function redirectToLogin(Request $request)
+    {
+        // Lưu URL hiện tại vào session
+        if (!$request->expectsJson()) {
+            session(['url.intended' => $request->fullUrl()]);
+        }
+
+        return redirect()->route('login')
+            ->with('info', 'Vui lòng đăng nhập để tiếp tục.');
     }
 }

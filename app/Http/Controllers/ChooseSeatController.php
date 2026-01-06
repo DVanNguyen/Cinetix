@@ -24,20 +24,20 @@ class ChooseSeatController extends Controller
         $showtime = Showtime::with(['movie', 'room.cinema', 'room.seats'])
             ->findOrFail($showtimeId);
 
-        // ✅ FIX: Kiểm tra suất chiếu đã qua giờ chưa
+        // Kiểm tra suất chiếu đã qua giờ chưa
         if (Carbon::parse($showtime->start_time)->isPast()) {
             return redirect()->route('movies.show', $showtime->movie_id)
                 ->with('error', 'Suất chiếu này đã bắt đầu. Vui lòng chọn suất khác.');
         }
 
-        // ✅ FIX: Tự động dọn ghế hết hạn TRƯỚC KHI hiển thị
+        // Tự động dọn ghế hết hạn TRƯỚC KHI hiển thị
         $this->cleanExpiredLocks($showtimeId);
 
         // 1. Ghế đã bán
         $soldSeatIds = DB::table('booking_seats')
             ->join('bookings', 'booking_seats.booking_id', '=', 'bookings.booking_id')
             ->where('bookings.showtime_id', $showtimeId)
-            ->whereIn('bookings.payment_status', ['confirmed', 'paid']) // ✅ Chỉ lấy vé đã thanh toán
+            ->whereIn('bookings.payment_status', ['confirmed', 'paid']) //  Chỉ lấy vé đã thanh toán
             ->pluck('booking_seats.seat_id')
             ->toArray();
 
@@ -57,7 +57,7 @@ class ChooseSeatController extends Controller
 
         $lockedSeatIds = $lockedSeats->pluck('seat_id')->toArray();
 
-        // ✅ Trả thêm thời gian hết hạn để frontend tự động mở khóa
+        // Trả thêm thời gian hết hạn để frontend tự động mở khóa
         $lockedSeatsWithExpiry = $lockedSeats->mapWithKeys(function($lock) {
             return [$lock->seat_id => $lock->expires_at->toIso8601String()];
         });
@@ -83,14 +83,14 @@ class ChooseSeatController extends Controller
             'seats' => $showtime->room->seats,
             'soldSeatIds' => $soldSeatIds,
             'lockedSeatIds' => $lockedSeatIds,
-            'lockedSeatsWithExpiry' => $lockedSeatsWithExpiry, // ✅ Để frontend check realtime
+            'lockedSeatsWithExpiry' => $lockedSeatsWithExpiry, // Để frontend check realtime
             'mySelectedSeatIds' => $mySelectedSeats,
             'combos' => $combos,
         ]);
     }
 
     /**
-     * ✅ HÀM MỚI: Dọn ghế hết hạn
+     * Dọn ghế hết hạn
      */
     private function cleanExpiredLocks($showtimeId)
     {
@@ -106,7 +106,7 @@ class ChooseSeatController extends Controller
     }
 
     /**
-     * API: KHÓA GHẾ (ĐÃ CẢI THIỆN)
+     * API: KHÓA GHẾ 
      */
     public function lockSeat(Request $request)
     {
@@ -117,7 +117,7 @@ class ChooseSeatController extends Controller
 
         DB::beginTransaction();
         try {
-            // ✅ FIX 1: Kiểm tra ghế đã bán chưa (QUAN TRỌNG!)
+            // Kiểm tra ghế đã bán chưa (QUAN TRỌNG!)
             $isSold = DB::table('booking_seats')
                 ->join('bookings', 'booking_seats.booking_id', '=', 'bookings.booking_id')
                 ->where('bookings.showtime_id', $showtimeId)
@@ -133,10 +133,10 @@ class ChooseSeatController extends Controller
                 ], 409);
             }
 
-            // ✅ FIX 2: Khóa dòng (Lock for update) - CHẶN RACE CONDITION
+            // Khóa dòng - CHẶN RACE CONDITION
             $existingLock = SeatLock::where('showtime_id', $showtimeId)
                 ->where('seat_id', $seatId)
-                ->lockForUpdate() // 🔒 Khóa để không ai đọc/ghi được
+                ->lockForUpdate() // Khóa để không ai đọc/ghi được
                 ->first();
 
             // Kiểm tra lock còn hiệu lực không
@@ -157,7 +157,7 @@ class ChooseSeatController extends Controller
                 }
             }
 
-            // ✅ FIX 3: Tạo lock mới với thời gian rõ ràng
+            // Tạo lock mới với thời gian rõ ràng
             $expiresAt = now()->addMinutes(10);
             
             $lock = SeatLock::updateOrCreate(
@@ -181,7 +181,7 @@ class ChooseSeatController extends Controller
 
             return response()->json([
                 'status' => 'success',
-                'expires_at' => $expiresAt->toIso8601String() // ✅ Trả về thời gian hết hạn
+                'expires_at' => $expiresAt->toIso8601String() // Trả về thời gian hết hạn
             ]);
 
         } catch (\Exception $e) {
@@ -218,7 +218,7 @@ class ChooseSeatController extends Controller
     }
 
     /**
-     * ✅ API MỚI: Lấy trạng thái ghế realtime (Dùng cho polling)
+     * API MỚI: Lấy trạng thái ghế realtime (polling)
      */
     public function getSeatStatus($showtimeId)
     {
@@ -230,7 +230,7 @@ class ChooseSeatController extends Controller
         $soldSeatIds = DB::table('booking_seats')
             ->join('bookings', 'booking_seats.booking_id', '=', 'bookings.booking_id')
             ->where('bookings.showtime_id', $showtimeId)
-            ->whereIn('bookings.status', ['confirmed', 'paid'])
+            ->whereIn('bookings.payment_status', ['confirmed', 'paid'])
             ->pluck('booking_seats.seat_id')
             ->toArray();
 

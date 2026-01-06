@@ -7,24 +7,27 @@ use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
-use Illuminate\Support\Facades\Http; // Import HTTP Client
+use Illuminate\Support\Facades\Http;
 use App\Models\Booking;
 use App\Models\BookingSeat;
 use App\Models\SeatLock;
 use App\Models\Showtime;
 use App\Models\Seat;
 use App\Models\Combo;
-use App\Models\Payment; // Import Model Payment (Bảng payments)
+use App\Models\Payment;
+use App\Models\WalletTransaction;
 
 class PaymentController extends Controller
 {
-    // CẤU HÌNH MOMO TEST (Nên đưa vào file .env trong thực tế)
+    // CẤU HÌNH MOMO
     private $momoEndpoint = "https://test-payment.momo.vn/v2/gateway/api/create";
     private $partnerCode = "MOMO"; 
     private $accessKey = "F8BBA842ECF85"; 
-    private $secretKey = "K951B6PE1waDMi640xX08PD3vg6EkVlz"; 
+    private $secretKey = "K951B6PE1waDMi640xX08PD3vg6EkVlz";
 
-    // 1. HIỂN THỊ TRANG THANH TOÁN
+    /**
+     * ✅ 1. HIỂN THỊ TRANG THANH TOÁN (có thêm số dư ví)
+     */
     public function index(Request $request)
     {
         $showtimeId = $request->showtime_id;
@@ -78,32 +81,45 @@ class PaymentController extends Controller
 
         $finalTotal = $seatTotal + $combosTotal;
 
+        /** @var \App\Models\User */
+        $user = Auth::user();
+
         return Inertia::render('Booking/Payment', [
             'showtime' => $showtime,
             'seats' => $seatDetails,
             'combos' => $selectedCombos,
             'totalAmount' => $finalTotal,
-            'user' => Auth::user()
+            'user' => [
+                'user_id' => $user->user_id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'wallet_balance' => $user->wallet_balance, // ✅ Thêm số dư ví
+                'formatted_wallet_balance' => $user->formatted_wallet_balance
+            ]
         ]); 
     }
 
-    // 2. XỬ LÝ THANH TOÁN & TẠO URL MOMO
+    /**
+     * ✅ 2. XỬ LÝ THANH TOÁN (Có thêm phương thức Ví Xu)
+     */
     public function process(Request $request)
     {
         $request->validate([
             'showtime_id' => 'required',
             'seat_ids' => 'required|array',
-            'payment_method' => 'required',
+            'payment_method' => 'required|in:momo,wallet,cash', // ✅ Thêm wallet
             'combos' => 'nullable|array'
         ]);
 
-        $userId = Auth::id();
+        /** @var \App\Models\User */
+        $user = Auth::user();
+        $userId = $user->user_id;
         $sessionId = Session::getId();
         $seatIds = $request->seat_ids;
 
         DB::beginTransaction();
         try {
-            // Check ghế
+            // 1. Kiểm tra lock ghế
             $validLocks = SeatLock::whereIn('seat_id', $seatIds)
                 ->where('showtime_id', $request->showtime_id)
                 ->where('session_id', $sessionId)
@@ -116,7 +132,7 @@ class PaymentController extends Controller
                 ], 400);
             }
 
-            // Tính toán lại tổng tiền (Server Side)
+            // 2. Tính toán tổng tiền
             $totalAmount = 0;
             $seats = Seat::whereIn('seat_id', $seatIds)->get();
             $bookingSeatsData = [];
@@ -145,53 +161,74 @@ class PaymentController extends Controller
                 }
             }
 
-            // A. TẠO BOOKING (Trạng thái PENDING)
-            $booking = Booking::create([
-                'user_id' => $userId,
-                'showtime_id' => $request->showtime_id,
-                'total_amount' => $totalAmount,
-                'final_total' => $totalAmount, // Nếu có voucher thì trừ ở đây
-                'payment_method' => $request->payment_method,
-                'payment_status' => 'pending', // QUAN TRỌNG: Đang chờ thanh toán
-                'booking_date' => now(),
-            ]);
+            // 3. ✅ XỬ LÝ THANH TOÁN BẰNG VÍ XU
+            if ($request->payment_method === Booking::PAYMENT_WALLET) {
+                // Kiểm tra số dư
+                if (!$user->hasEnoughBalance($totalAmount)) {
+                    DB::rollBack();
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'Số dư ví không đủ. Vui lòng nạp thêm hoặc chọn phương thức khác.'
+                    ], 400);
+                }
 
-            // B. LƯU CHI TIẾT
-            foreach ($bookingSeatsData as $data) {
-                BookingSeat::create([
+                // Tạo booking
+                $booking = $this->createBooking($userId, $request->showtime_id, $totalAmount, $request->payment_method);
+                
+                // Lưu chi tiết
+                $this->saveBookingDetails($booking, $bookingSeatsData, $bookingCombosData);
+
+                // Trừ tiền ví
+                $user->deductFromWallet(
+                    $totalAmount,
+                    WalletTransaction::TYPE_PAYMENT,
+                    "Thanh toán vé phim #{$booking->booking_id}",
+                    $booking->booking_id,
+                    'booking_payment',
+                    $booking->booking_id
+                );
+
+                // Cập nhật booking thành công
+                $booking->update([
+                    'payment_status' => 'paid',
+                    'status' => Booking::STATUS_CONFIRMED
+                ]);
+
+                // Xóa lock ghế
+                SeatLock::whereIn('seat_id', $seatIds)
+                    ->where('showtime_id', $request->showtime_id)
+                    ->delete();
+
+                DB::commit();
+
+                return response()->json([
+                    'status' => 'success',
                     'booking_id' => $booking->booking_id,
-                    'seat_id' => $data['seat_id'],
-                    'price' => $data['price']
+                    'message' => 'Thanh toán thành công bằng Ví Xu'
                 ]);
             }
-            foreach ($bookingCombosData as $data) {
-                DB::table('booking_combos')->insert([
-                    'booking_id' => $booking->booking_id,
-                    'combo_id' => $data['combo_id'],
-                    'quantity' => $data['quantity'],
-                    'price_at_booking' => $data['price_at_booking'],
-                    'created_at' => now()
-                ]);
-            }
 
-            // C. XÓA LOCK GHẾ (Vì đã tạo booking pending, ghế coi như đã được giữ bởi booking này)
+            // 4. Tạo booking PENDING cho Momo và Cash
+            $booking = $this->createBooking($userId, $request->showtime_id, $totalAmount, $request->payment_method);
+            $this->saveBookingDetails($booking, $bookingSeatsData, $bookingCombosData);
             SeatLock::whereIn('seat_id', $seatIds)->where('showtime_id', $request->showtime_id)->delete();
 
             DB::commit();
 
-            // --- TÍCH HỢP MOMO ---
-            if ($request->payment_method === 'momo') {
+            // 5. MOMO
+            if ($request->payment_method === Booking::PAYMENT_MOMO) {
                 $paymentUrl = $this->createMomoUrl($booking);
-                return response()->json([
-                    'status' => 'redirect', 
-                    'url' => $paymentUrl
-                ]);
+                return response()->json(['status' => 'redirect', 'url' => $paymentUrl]);
             }
 
-            // Nếu thanh toán tiền mặt/tại quầy
-            if ($request->payment_method === 'cash') {
-                 $booking->update(['payment_status' => 'paid']); // Giả sử thu tiền luôn
-                 return response()->json(['status' => 'success', 'booking_id' => $booking->booking_id]);
+            // 6. CASH (Tiền mặt)
+            if ($request->payment_method === Booking::PAYMENT_CASH) {
+                // ✅ GIỮ TRẠNG THÁI PENDING, sẽ xử lý sau
+                return response()->json([
+                    'status' => 'success', 
+                    'booking_id' => $booking->booking_id,
+                    'message' => 'Vui lòng thanh toán tại quầy trước giờ chiếu'
+                ]);
             }
 
             return response()->json(['status' => 'success', 'booking_id' => $booking->booking_id]);
@@ -202,17 +239,60 @@ class PaymentController extends Controller
         }
     }
 
-    // 3. HÀM RIÊNG TẠO LINK MOMO
-    private function createMomoUrl($booking) {
-        $orderId = $booking->booking_id . '_' . time(); // ID duy nhất: 123_170123456
+    /**
+     * ✅ HÀM PHỤ: Tạo booking
+     */
+    private function createBooking($userId, $showtimeId, $totalAmount, $paymentMethod)
+    {
+        return Booking::create([
+            'user_id' => $userId,
+            'showtime_id' => $showtimeId,
+            'total_amount' => $totalAmount,
+            'final_total' => $totalAmount,
+            'payment_method' => $paymentMethod,
+            'payment_status' => 'pending',
+            'status' => Booking::STATUS_PENDING,
+            'booking_date' => now(),
+        ]);
+    }
+
+    /**
+     * ✅ HÀM PHỤ: Lưu chi tiết booking
+     */
+    private function saveBookingDetails($booking, $bookingSeatsData, $bookingCombosData)
+    {
+        foreach ($bookingSeatsData as $data) {
+            BookingSeat::create([
+                'booking_id' => $booking->booking_id,
+                'seat_id' => $data['seat_id'],
+                'price' => $data['price']
+            ]);
+        }
+
+        foreach ($bookingCombosData as $data) {
+            DB::table('booking_combos')->insert([
+                'booking_id' => $booking->booking_id,
+                'combo_id' => $data['combo_id'],
+                'quantity' => $data['quantity'],
+                'price_at_booking' => $data['price_at_booking'],
+                'created_at' => now()
+            ]);
+        }
+    }
+
+    /**
+     * ✅ 3. TẠO URL MOMO (Giữ nguyên)
+     */
+    private function createMomoUrl($booking) 
+    {
+        $orderId = $booking->booking_id . '_' . time();
         $requestId = $orderId;
         $amount = (string)$booking->total_amount;
         $orderInfo = "Thanh toán vé phim #" . $booking->booking_id;
-        $redirectUrl = route('payment.return'); // URL user quay về khi xong
-        $ipnUrl = route('payment.return'); // Ở localhost dùng tạm link này, thực tế dùng route('payment.ipn')
+        $redirectUrl = route('payment.return');
+        $ipnUrl = route('payment.return');
         $extraData = "";
 
-        // Tạo chữ ký HMAC SHA256
         $rawHash = "accessKey=" . $this->accessKey . 
                    "&amount=" . $amount . 
                    "&extraData=" . $extraData . 
@@ -242,12 +322,11 @@ class PaymentController extends Controller
             'signature' => $signature
         ];
 
-        // Lưu log giao dịch PENDING vào bảng payments
         Payment::create([
             'booking_id' => $booking->booking_id,
             'amount' => $booking->total_amount,
             'provider' => 'MOMO',
-            'transaction_code' => $orderId, // Lưu orderId để đối chiếu
+            'transaction_code' => $orderId,
             'status' => 'pending'
         ]);
 
@@ -255,49 +334,49 @@ class PaymentController extends Controller
         return $response->json()['payUrl'];
     }
 
-    // 4. XỬ LÝ KHI USER QUAY VỀ TỪ MOMO (Redirect URL)
+    /**
+     * ✅ 4. XỬ LÝ RETURN TỪ MOMO
+     */
     public function paymentReturn(Request $request)
     {
-        // Momo trả về: ?partnerCode=...&orderId=...&requestId=...&amount=...&resultCode=...
         $resultCode = $request->resultCode;
-        $orderId = $request->orderId; // Dạng: bookingId_timestamp
+        $orderId = $request->orderId;
         
-        // Tách booking ID
         $parts = explode('_', $orderId);
         $bookingId = $parts[0];
 
         $booking = Booking::find($bookingId);
         $payment = Payment::where('transaction_code', $orderId)->first();
 
-        if ($resultCode == 0) { // 0 là Thành công
+        if ($resultCode == 0) {
             DB::transaction(function () use ($booking, $payment) {
-                // Update Booking
                 if ($booking) {
-                    $booking->payment_status = 'paid';
-                    $booking->payment_id = $payment ? $payment->payment_id : null;
-                    $booking->save();
+                    $booking->update([
+                        'payment_status' => 'paid',
+                        'status' => Booking::STATUS_CONFIRMED,
+                        'payment_id' => $payment ? $payment->payment_id : null
+                    ]);
                 }
-                // Update Payment History
                 if ($payment) {
-                    $payment->status = 'success';
-                    $payment->save();
+                    $payment->update(['status' => 'success']);
                 }
             });
 
-            // Redirect về trang Frontend báo thành công
             return redirect()->to('/payment/result?status=success&booking_id=' . $bookingId);
         } else {
-            // Thất bại
             if ($payment) {
-                $payment->status = 'failed';
-                $payment->save();
+                $payment->update(['status' => 'failed']);
             }
+            // ✅ Có thể giải phóng ghế ở đây nếu muốn
             return redirect()->to('/payment/result?status=failed&message=' . $request->message);
         }
     }
     
-    // 5. HIỂN THỊ TRANG KẾT QUẢ CUỐI CÙNG
-    public function result(Request $request) {
+    /**
+     * ✅ 5. HIỂN THỊ KẾT QUẢ
+     */
+    public function result(Request $request) 
+    {
         return Inertia::render('Booking/Result', [
             'status' => $request->status,
             'booking_id' => $request->booking_id,

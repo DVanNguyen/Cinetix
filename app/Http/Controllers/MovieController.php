@@ -38,12 +38,21 @@ class MovieController extends Controller
 
         // 4. Logic lấy phim
         if ($search) {
+            // TÌM KIẾM
             $finalMovieList = Movie::where('title', 'like', "%{$search}%")
                 ->orWhere('cast', 'like', "%{$search}%")
                 ->orderBy('release_date', 'desc')
                 ->get();
         } 
+        elseif ($status === 'coming_soon') {
+            // ✅ PHIM SẮP CHIẾU
+            $finalMovieList = Movie::where('release_date', '>', $today)
+                ->orWhere('status', 'coming_soon')
+                ->orderBy('release_date', 'asc')
+                ->get();
+        }
         elseif ($dateParam === 'all') {
+            // TẤT CẢ PHIM (7 NGÀY)
             $endDate = $today->copy()->addDays(7);
             $finalMovieList = Movie::join('movie_schedules', 'movies.movie_id', '=', 'movie_schedules.movie_id')
                 ->whereBetween('movie_schedules.show_date', [$today, $endDate])
@@ -53,6 +62,7 @@ class MovieController extends Controller
                 ->get();
         } 
         else {
+            // PHIM THEO NGÀY CỤ THỂ
             $finalMovieList = MovieSchedule::getListForDate($queryDate->format('Y-m-d'));
         }
 
@@ -73,16 +83,23 @@ class MovieController extends Controller
 
         // 6. Load Showtimes và gán nearest_date
         foreach ($finalMovieList as $movie) {
-            $showtimeDate = ($dateParam === 'all') ? $today->format('Y-m-d') : $dateParam;
+            // Nếu là phim sắp chiếu, không load showtimes
+            $isComingSoon = $movie->release_date && Carbon::parse($movie->release_date)->gt($today);
             
-            $movie->setRelation('showtimes',
-                $movie->showtimes()
-                    ->whereDate('start_time', $showtimeDate)
-                    ->when($showtimeDate === $today->format('Y-m-d'), fn($q) => $q->where('start_time', '>', now()))
-                    ->orderBy('start_time')
-                    ->take(4)
-                    ->get()
-            );
+            if (!$isComingSoon) {
+                $showtimeDate = ($dateParam === 'all') ? $today->format('Y-m-d') : $dateParam;
+                
+                $movie->setRelation('showtimes',
+                    $movie->showtimes()
+                        ->whereDate('start_time', $showtimeDate)
+                        ->when($showtimeDate === $today->format('Y-m-d'), fn($q) => $q->where('start_time', '>', now()))
+                        ->orderBy('start_time')
+                        ->take(4)
+                        ->get()
+                );
+            } else {
+                $movie->setRelation('showtimes', collect([]));
+            }
 
             // ✅ Gán ngày gần nhất từ movie_schedules
             $movie->nearest_showtime_date = $nearestDates[$movie->movie_id] ?? null;
@@ -119,8 +136,17 @@ class MovieController extends Controller
     private function generateDateBar($today, $selectedDateStr)
     {
         $dateBar = [];
-        $dateBar[] = ['dayName' => 'Danh sách', 'date' => 'ALL', 'month' => 'Phim', 'fullValue' => 'all', 'isActive' => $selectedDateStr === 'all', 'isSpecial' => true];
+        $dateBar[] = [
+            'dayName' => 'Danh sách', 
+            'date' => 'ALL', 
+            'month' => 'Phim', 
+            'fullValue' => 'all', 
+            'isActive' => $selectedDateStr === 'all', 
+            'isSpecial' => true
+        ];
+        
         $weekMap = ['Sun' => 'CN', 'Mon' => 'Th 2', 'Tue' => 'Th 3', 'Wed' => 'Th 4', 'Thu' => 'Th 5', 'Fri' => 'Th 6', 'Sat' => 'Th 7'];
+        
         for ($i = 0; $i < 7; $i++) {
             $d = $today->copy()->addDays($i);
             $dString = $d->format('Y-m-d');
@@ -139,6 +165,7 @@ class MovieController extends Controller
 
     private function transformMovie($movie, $today) {
         if (!$movie) return null;
+        
         $isComingSoon = $movie->release_date && Carbon::parse($movie->release_date)->gt($today);
         
         return [
@@ -152,8 +179,11 @@ class MovieController extends Controller
             'trailer_url' => $movie->trailer_url,
             'release_date' => $movie->release_date ? Carbon::parse($movie->release_date)->format('Y-m-d') : null,
             'status' => $isComingSoon ? 'coming_soon' : 'now_showing',
-            'showtimes' => $movie->showtimes->map(fn($s) => ['id' => $s->showtime_id, 'time' => Carbon::parse($s->start_time)->format('H:i')]),
-            'nearest_showtime_date' => $movie->nearest_showtime_date ?? null, // ✅ Ngày từ movie_schedules
+            'showtimes' => $movie->showtimes ? $movie->showtimes->map(fn($s) => [
+                'id' => $s->showtime_id, 
+                'time' => Carbon::parse($s->start_time)->format('H:i')
+            ]) : [],
+            'nearest_showtime_date' => $movie->nearest_showtime_date ?? null,
         ];
     }
 
@@ -164,6 +194,43 @@ class MovieController extends Controller
     }
 
     private function getEmptyMovie() {
-        return ['id'=>0, 'title'=>'Đang cập nhật', 'poster_url'=>'', 'backdrop_url'=>'', 'rating'=>0, 'duration'=>'', 'nearest_showtime_date'=>null];
+        return [
+            'id' => 0, 
+            'title' => 'Đang cập nhật', 
+            'poster_url' => '', 
+            'backdrop_url' => '', 
+            'rating' => 0, 
+            'duration' => '', 
+            'nearest_showtime_date' => null,
+            'status' => 'now_showing'
+        ];
+    }
+
+    /**
+     * ✅ API: Lấy thông tin chi tiết phim (dùng cho modal)
+     */
+    public function show($id)
+    {
+        $movie = Movie::with(['genre', 'showtimes' => function($q) {
+            $q->where('start_time', '>=', now())
+              ->orderBy('start_time', 'asc')
+              ->take(10);
+        }])->findOrFail($id);
+
+        $today = Carbon::today();
+        $isComingSoon = $movie->release_date && Carbon::parse($movie->release_date)->gt($today);
+
+        // Lấy ngày chiếu gần nhất
+        $nearestDate = DB::table('movie_schedules')
+            ->where('movie_id', $id)
+            ->where('show_date', '>=', $today->format('Y-m-d'))
+            ->min('show_date');
+
+        return response()->json([
+            'movie' => $this->transformMovie($movie, $today),
+            'is_coming_soon' => $isComingSoon,
+            'nearest_showtime_date' => $nearestDate,
+            'can_book' => !$isComingSoon || ($nearestDate && Carbon::parse($nearestDate)->diffInDays($today) <= 7)
+        ]);
     }
 }

@@ -135,7 +135,7 @@ class TmdbService
         return true;
     }
 
-    // TRAILER – ĐÃ SỬA LỖI, CHẠY NGON
+    // TRAILER 
     protected function getBestTrailerLikeJava($videos)
     {
         if (empty($videos)) return null;
@@ -167,7 +167,7 @@ class TmdbService
 
         foreach ($genres as $g) {
             if (in_array($g['name'], $banned)) {    
-                return null; // BỎ QUA PHIM NÀY HOÀN TOÀN
+                return null; // Bo QUA THE LOAI PHIM
             }
         }
 

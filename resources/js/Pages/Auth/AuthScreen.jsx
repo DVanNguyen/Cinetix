@@ -1,179 +1,379 @@
-import React, { useState } from 'react';
-import { Head, useForm } from '@inertiajs/react'; 
-import { 
-    Film, Ticket, User, Phone, Mail, Lock, Eye, EyeOff, 
-    ArrowRight, Chrome, Facebook 
-} from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Head, useForm, usePage } from '@inertiajs/react';
+import { Mail, Lock, User, Phone, Eye, EyeOff, PlayCircle, Info } from 'lucide-react';
 
-export default function AuthScreen() {
+export default function AuthScreen({ intended_url = '/' }) {
     const [isLogin, setIsLogin] = useState(true);
     const [showPassword, setShowPassword] = useState(false);
+    const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-    // --- SETUP FORM INERTIA ---
-    // data: Chứa dữ liệu form
-    // setData: Hàm cập nhật dữ liệu
-    // post: Hàm gửi request POST
-    // processing: True khi đang gửi (để hiện loading)
-    // errors: Chứa lỗi từ Laravel trả về (VD: sai pass, trùng email)
-    const { data, setData, post, processing, errors, reset, clearErrors } = useForm({
-        name: '',
-        phone: '',
+    // Form đăng nhập
+    const loginForm = useForm({
         email: '',
         password: '',
-        password_confirmation: '', // Laravel cần trường này để check confirm
+        remember: false,
+        intended_url: intended_url
     });
 
-    // Hàm chuyển đổi chế độ Login/Register
-    const toggleMode = () => {
-        setIsLogin(!isLogin);
-        clearErrors(); // Xóa lỗi cũ
-        reset();       // Xóa dữ liệu cũ
+    // Form đăng ký
+    const registerForm = useForm({
+        name: '',
+        email: '',
+        password: '',
+        password_confirmation: '',
+        phone: '',
+        intended_url: intended_url
+    });
+
+    // ✅ Lấy intended URL từ sessionStorage khi component mount
+    useEffect(() => {
+        const savedUrl = sessionStorage.getItem('intended_url');
+        if (savedUrl) {
+            loginForm.setData('intended_url', savedUrl);
+            registerForm.setData('intended_url', savedUrl);
+            // Clear sau khi lấy để tránh dùng lại
+            sessionStorage.removeItem('intended_url');
+        }
+    }, []);
+
+    const handleLoginSubmit = (e) => {
+        e.preventDefault();
+        loginForm.post('/login', {
+            onSuccess: () => {
+                // Backend sẽ tự động redirect về intended URL
+            },
+            onError: (errors) => {
+                console.error('Login error:', errors);
+            }
+        });
     };
 
-    // Xử lý Submit
-    const handleSubmit = (e) => {
+    const handleRegisterSubmit = (e) => {
         e.preventDefault();
-        
-        if (isLogin) {
-            // Gửi request Đăng nhập
-            post('/login'); 
-        } else {
-            // Gửi request Đăng ký
-            post('/register');
-        }
+        registerForm.post('/register', {
+            onSuccess: () => {
+                // Backend sẽ tự động redirect về intended URL
+            },
+            onError: (errors) => {
+                console.error('Register error:', errors);
+            }
+        });
+    };
+
+    // Chuyển đổi giữa Login/Register
+    const toggleMode = () => {
+        setIsLogin(!isLogin);
+        // Reset errors khi chuyển mode
+        loginForm.clearErrors();
+        registerForm.clearErrors();
     };
 
     return (
-        <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4 font-sans text-gray-100 relative overflow-hidden">
-            <Head title={isLogin ? "Đăng Nhập" : "Đăng Ký"} />
+        <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-black flex items-center justify-center p-4 relative overflow-hidden">
+            <Head title={isLogin ? "Đăng nhập - CineTix" : "Đăng ký - CineTix"} />
 
-            {/* Background Glow giữ nguyên */}
-            <div className="fixed inset-0 -z-10 overflow-hidden pointer-events-none">
-                <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-red-600 rounded-full blur-[100px] opacity-20 animate-pulse"></div>
-                <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-orange-600 rounded-full blur-[100px] opacity-20"></div>
+            {/* Background Animation */}
+            <div className="absolute inset-0 overflow-hidden pointer-events-none">
+                <div className="absolute -top-40 -right-40 w-96 h-96 bg-red-600/10 rounded-full blur-3xl animate-pulse"></div>
+                <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl animate-pulse delay-1000"></div>
             </div>
 
-            <div className="w-full max-w-5xl h-auto min-h-[600px] bg-gray-800/80 backdrop-blur-md rounded-2xl shadow-2xl flex flex-col md:flex-row overflow-hidden border border-gray-700">
-                {/* Phần Bìa bên trái (Giữ nguyên, cắt bớt cho gọn code hiển thị ở đây) */}
-                <div className="hidden md:flex md:w-1/2 relative bg-black items-center justify-center overflow-hidden group">
-                    <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: "url('https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=2070&auto=format&fit=crop')" }}></div>
-                    <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-transparent opacity-90"></div>
-                    <div className="relative z-10 text-center px-10">
-                        <h2 className="text-4xl font-bold text-white mb-3">CineTix Cinema</h2>
-                        <p className="text-gray-300">Đăng nhập để đặt vé ngay.</p>
+            {/* Main Container */}
+            <div className="relative z-10 w-full max-w-5xl flex bg-gray-900/80 backdrop-blur-xl rounded-3xl overflow-hidden shadow-2xl border border-gray-800">
+                
+                {/* Left Side - Branding */}
+                <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-red-600 to-red-800 p-12 flex-col justify-between relative overflow-hidden">
+                    <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/asfalt-dark.png')] opacity-20"></div>
+                    
+                    <div className="relative z-10">
+                        <div className="flex items-center gap-3 mb-8">
+                            <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-lg">
+                                <PlayCircle className="w-8 h-8 text-red-600" />
+                            </div>
+                            <span className="text-3xl font-black text-white">CineTix</span>
+                        </div>
+                        
+                        <h2 className="text-4xl font-bold text-white mb-4 leading-tight">
+                            Trải nghiệm điện ảnh <br />
+                            đỉnh cao mọi lúc
+                        </h2>
+                        <p className="text-red-100 text-lg">
+                            Đặt vé nhanh chóng, thanh toán dễ dàng, thưởng thức phim hay ngay hôm nay!
+                        </p>
+                    </div>
+
+                    <div className="relative z-10 space-y-4">
+                        <div className="flex items-center gap-3 text-white/90">
+                            <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">✓</div>
+                            <span>Hơn 100+ rạp trên toàn quốc</span>
+                        </div>
+                        <div className="flex items-center gap-3 text-white/90">
+                            <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">✓</div>
+                            <span>Ưu đãi độc quyền cho thành viên</span>
+                        </div>
+                        <div className="flex items-center gap-3 text-white/90">
+                            <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">✓</div>
+                            <span>Thanh toán an toàn & bảo mật</span>
+                        </div>
                     </div>
                 </div>
 
-                {/* Phần Form bên phải */}
-                <div className="w-full md:w-1/2 bg-gray-900 md:bg-gray-800 p-8 md:p-12 flex flex-col justify-center">
+                {/* Right Side - Form */}
+                <div className="w-full lg:w-1/2 p-8 md:p-12">
                     
-                    <div className="mb-8">
-                        <h3 className="text-3xl font-bold text-white mb-2">{isLogin ? 'Chào mừng trở lại!' : 'Tạo tài khoản mới'}</h3>
-                        {/* Hiển thị lỗi chung nếu có */}
-                        {Object.keys(errors).length > 0 && (
-                            <div className="text-red-500 text-sm bg-red-500/10 p-2 rounded border border-red-500/20 mt-2">
-                                Vui lòng kiểm tra lại thông tin bên dưới.
+                    {/* ✅ Alert khi có intended URL */}
+                    {intended_url !== '/' && (
+                        <div className="mb-6 bg-blue-900/20 border border-blue-500/20 rounded-xl p-4 flex items-start gap-3 animate-in fade-in slide-in-from-top duration-300">
+                            <div className="mt-0.5">
+                                <Info className="w-5 h-5 text-blue-400" />
                             </div>
-                        )}
+                            <div>
+                                <p className="text-blue-400 font-bold text-sm mb-1">
+                                    Vui lòng đăng nhập để tiếp tục
+                                </p>
+                                <p className="text-blue-300 text-xs">
+                                    Bạn sẽ được chuyển đến trang đặt vé sau khi đăng nhập thành công.
+                                </p>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Header */}
+                    <div className="mb-8">
+                        <h3 className="text-3xl font-bold text-white mb-2">
+                            {isLogin ? 'Chào mừng trở lại!' : 'Tạo tài khoản mới'}
+                        </h3>
+                        <p className="text-gray-400">
+                            {isLogin 
+                                ? 'Đăng nhập để tiếp tục đặt vé xem phim' 
+                                : 'Đăng ký để nhận ưu đãi độc quyền'}
+                        </p>
                     </div>
 
-                    <form onSubmit={handleSubmit} className="space-y-4">
-                        {errors.email && isLogin && (
-                            <div className="p-3 bg-red-500/10 border border-red-500/50 rounded text-red-500 text-sm text-center">
-                                {errors.email}
-                            </div>
-                        )}
+                    {/* FORM ĐĂNG NHẬP */}
+                    {isLogin ? (
+                        <form onSubmit={handleLoginSubmit} className="space-y-5">
+                            {/* Hidden input for intended URL */}
+                            <input type="hidden" name="intended_url" value={loginForm.data.intended_url} />
 
-                        {/* Tên (Chỉ hiện khi Register) */}
-                        {!isLogin && (
-                            <div className="space-y-1">
-                                <div className="relative group">
-                                    <User className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 w-5 h-5" />
-                                    <input 
-                                        type="text" placeholder="Họ và tên"
-                                        value={data.name} onChange={e => setData('name', e.target.value)}
-                                        className="w-full bg-gray-700/50 border border-gray-600 text-white pl-11 pr-4 py-3.5 rounded-lg focus:outline-none focus:border-red-500"
+                            {/* Email */}
+                            <div>
+                                <label className="block text-gray-300 text-sm font-bold mb-2">
+                                    Email
+                                </label>
+                                <div className="relative">
+                                    <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+                                    <input
+                                        type="email"
+                                        value={loginForm.data.email}
+                                        onChange={e => loginForm.setData('email', e.target.value)}
+                                        className="w-full bg-gray-800 border border-gray-700 text-white pl-12 pr-4 py-3 rounded-xl focus:border-red-500 focus:ring-2 focus:ring-red-500/20 transition"
+                                        placeholder="example@email.com"
+                                        required
                                     />
                                 </div>
-                                {errors.name && <p className="text-red-500 text-xs pl-1">{errors.name}</p>}
+                                {loginForm.errors.email && (
+                                    <p className="text-red-500 text-xs mt-1">{loginForm.errors.email}</p>
+                                )}
                             </div>
-                        )}
 
-                        {/* Số điện thoại (Chỉ hiện khi Register) */}
-                        {!isLogin && (
-                            <div className="space-y-1">
-                                <div className="relative group">
-                                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 w-5 h-5" />
-                                    <input 
-                                        type="text" placeholder="Số điện thoại"
-                                        value={data.phone} onChange={e => setData('phone', e.target.value)}
-                                        className="w-full bg-gray-700/50 border border-gray-600 text-white pl-11 pr-4 py-3.5 rounded-lg focus:outline-none focus:border-red-500"
+                            {/* Password */}
+                            <div>
+                                <label className="block text-gray-300 text-sm font-bold mb-2">
+                                    Mật khẩu
+                                </label>
+                                <div className="relative">
+                                    <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+                                    <input
+                                        type={showPassword ? "text" : "password"}
+                                        value={loginForm.data.password}
+                                        onChange={e => loginForm.setData('password', e.target.value)}
+                                        className="w-full bg-gray-800 border border-gray-700 text-white pl-12 pr-12 py-3 rounded-xl focus:border-red-500 focus:ring-2 focus:ring-red-500/20 transition"
+                                        placeholder="••••••••"
+                                        required
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowPassword(!showPassword)}
+                                        className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+                                    >
+                                        {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                                    </button>
+                                </div>
+                                {loginForm.errors.password && (
+                                    <p className="text-red-500 text-xs mt-1">{loginForm.errors.password}</p>
+                                )}
+                            </div>
+
+                            {/* Remember & Forgot */}
+                            <div className="flex items-center justify-between">
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={loginForm.data.remember}
+                                        onChange={e => loginForm.setData('remember', e.target.checked)}
+                                        className="w-4 h-4 accent-red-600 rounded"
+                                    />
+                                    <span className="text-gray-400 text-sm">Ghi nhớ đăng nhập</span>
+                                </label>
+                                <a href="/forgot-password" className="text-red-500 text-sm hover:underline">
+                                    Quên mật khẩu?
+                                </a>
+                            </div>
+
+                            {/* Submit Button */}
+                            <button
+                                type="submit"
+                                disabled={loginForm.processing}
+                                className="w-full bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white font-bold py-3 rounded-xl transition shadow-lg shadow-red-900/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {loginForm.processing ? 'Đang xử lý...' : 'Đăng nhập'}
+                            </button>
+                        </form>
+                    ) : (
+                        /* FORM ĐĂNG KÝ */
+                        <form onSubmit={handleRegisterSubmit} className="space-y-5">
+                            {/* Hidden input for intended URL */}
+                            <input type="hidden" name="intended_url" value={registerForm.data.intended_url} />
+
+                            {/* Name */}
+                            <div>
+                                <label className="block text-gray-300 text-sm font-bold mb-2">
+                                    Họ và tên
+                                </label>
+                                <div className="relative">
+                                    <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+                                    <input
+                                        type="text"
+                                        value={registerForm.data.name}
+                                        onChange={e => registerForm.setData('name', e.target.value)}
+                                        className="w-full bg-gray-800 border border-gray-700 text-white pl-12 pr-4 py-3 rounded-xl focus:border-red-500 focus:ring-2 focus:ring-red-500/20 transition"
+                                        placeholder="Nguyễn Văn A"
+                                        required
                                     />
                                 </div>
+                                {registerForm.errors.name && (
+                                    <p className="text-red-500 text-xs mt-1">{registerForm.errors.name}</p>
+                                )}
                             </div>
-                        )}
 
-                        {/* Email */}
-                        <div className="space-y-1">
-                            <div className="relative group">
-                                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 w-5 h-5" />
-                                <input 
-                                    type="email" placeholder="Địa chỉ Email"
-                                    value={data.email} onChange={e => setData('email', e.target.value)}
-                                    className={`w-full bg-gray-700/50 border text-white pl-11 pr-4 py-3.5 rounded-lg focus:outline-none focus:border-red-500 ${errors.email ? 'border-red-500' : 'border-gray-600'}`}
-                                />
+                            {/* Email */}
+                            <div>
+                                <label className="block text-gray-300 text-sm font-bold mb-2">
+                                    Email
+                                </label>
+                                <div className="relative">
+                                    <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+                                    <input
+                                        type="email"
+                                        value={registerForm.data.email}
+                                        onChange={e => registerForm.setData('email', e.target.value)}
+                                        className="w-full bg-gray-800 border border-gray-700 text-white pl-12 pr-4 py-3 rounded-xl focus:border-red-500 focus:ring-2 focus:ring-red-500/20 transition"
+                                        placeholder="example@email.com"
+                                        required
+                                    />
+                                </div>
+                                {registerForm.errors.email && (
+                                    <p className="text-red-500 text-xs mt-1">{registerForm.errors.email}</p>
+                                )}
                             </div>
-                            {errors.email && !isLogin && <p className="text-red-500 text-xs pl-1">{errors.email}</p>}
-                        </div>
 
-                        {/* Mật khẩu */}
-                        <div className="space-y-1">
-                            <div className="relative group">
-                                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 w-5 h-5" />
-                                <input 
-                                    type={showPassword ? "text" : "password"} placeholder="Mật khẩu"
-                                    value={data.password} onChange={e => setData('password', e.target.value)}
-                                    className="w-full bg-gray-700/50 border border-gray-600 text-white pl-11 pr-12 py-3.5 rounded-lg focus:outline-none focus:border-red-500"
-                                />
-                                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white">
-                                    {showPassword ? <EyeOff className="w-5 h-5"/> : <Eye className="w-5 h-5"/>}
-                                </button>
+                            {/* Phone */}
+                            <div>
+                                <label className="block text-gray-300 text-sm font-bold mb-2">
+                                    Số điện thoại
+                                </label>
+                                <div className="relative">
+                                    <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+                                    <input
+                                        type="tel"
+                                        value={registerForm.data.phone}
+                                        onChange={e => registerForm.setData('phone', e.target.value)}
+                                        className="w-full bg-gray-800 border border-gray-700 text-white pl-12 pr-4 py-3 rounded-xl focus:border-red-500 focus:ring-2 focus:ring-red-500/20 transition"
+                                        placeholder="0912345678"
+                                        required
+                                    />
+                                </div>
+                                {registerForm.errors.phone && (
+                                    <p className="text-red-500 text-xs mt-1">{registerForm.errors.phone}</p>
+                                )}
                             </div>
-                            {errors.password && <p className="text-red-500 text-xs pl-1">{errors.password}</p>}
-                        </div>
 
-                        {/* Nhập lại mật khẩu (Chỉ Register) */}
-                        {!isLogin && (
-                            <div className="relative group">
-                                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 w-5 h-5" />
-                                <input 
-                                    type="password" placeholder="Xác nhận mật khẩu"
-                                    value={data.password_confirmation} onChange={e => setData('password_confirmation', e.target.value)}
-                                    className="w-full bg-gray-700/50 border border-gray-600 text-white pl-11 pr-4 py-3.5 rounded-lg focus:outline-none focus:border-red-500"
-                                />
+                            {/* Password */}
+                            <div>
+                                <label className="block text-gray-300 text-sm font-bold mb-2">
+                                    Mật khẩu
+                                </label>
+                                <div className="relative">
+                                    <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+                                    <input
+                                        type={showPassword ? "text" : "password"}
+                                        value={registerForm.data.password}
+                                        onChange={e => registerForm.setData('password', e.target.value)}
+                                        className="w-full bg-gray-800 border border-gray-700 text-white pl-12 pr-12 py-3 rounded-xl focus:border-red-500 focus:ring-2 focus:ring-red-500/20 transition"
+                                        placeholder="Tối thiểu 6 ký tự"
+                                        required
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowPassword(!showPassword)}
+                                        className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+                                    >
+                                        {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                                    </button>
+                                </div>
+                                {registerForm.errors.password && (
+                                    <p className="text-red-500 text-xs mt-1">{registerForm.errors.password}</p>
+                                )}
                             </div>
-                        )}
 
-                        <button 
-                            type="submit" disabled={processing}
-                            className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-lg shadow-lg flex items-center justify-center gap-3 disabled:opacity-70"
-                        >
-                            {processing ? (
-                                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                            ) : (
-                                <>
-                                    <span>{isLogin ? 'Đăng Nhập' : 'Đăng Ký Ngay'}</span>
-                                    <ArrowRight className="w-5 h-5" />
-                                </>
-                            )}
-                        </button>
-                    </form>
+                            {/* Confirm Password */}
+                            <div>
+                                <label className="block text-gray-300 text-sm font-bold mb-2">
+                                    Xác nhận mật khẩu
+                                </label>
+                                <div className="relative">
+                                    <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+                                    <input
+                                        type={showConfirmPassword ? "text" : "password"}
+                                        value={registerForm.data.password_confirmation}
+                                        onChange={e => registerForm.setData('password_confirmation', e.target.value)}
+                                        className="w-full bg-gray-800 border border-gray-700 text-white pl-12 pr-12 py-3 rounded-xl focus:border-red-500 focus:ring-2 focus:ring-red-500/20 transition"
+                                        placeholder="Nhập lại mật khẩu"
+                                        required
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                                        className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+                                    >
+                                        {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                                    </button>
+                                </div>
+                            </div>
 
-                    <div className="mt-10 text-center text-sm text-gray-400">
-                        <span>{isLogin ? 'Chưa có tài khoản?' : 'Đã có tài khoản?'}</span>
-                        <button type="button" onClick={toggleMode} className="ml-2 text-red-500 font-bold hover:underline">
-                            {isLogin ? 'Đăng ký miễn phí' : 'Đăng nhập'}
-                        </button>
+                            {/* Submit Button */}
+                            <button
+                                type="submit"
+                                disabled={registerForm.processing}
+                                className="w-full bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white font-bold py-3 rounded-xl transition shadow-lg shadow-red-900/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {registerForm.processing ? 'Đang xử lý...' : 'Đăng ký'}
+                            </button>
+                        </form>
+                    )}
+
+                    {/* Toggle Login/Register */}
+                    <div className="mt-6 text-center">
+                        <p className="text-gray-400 text-sm">
+                            {isLogin ? 'Chưa có tài khoản?' : 'Đã có tài khoản?'}{' '}
+                            <button
+                                onClick={toggleMode}
+                                className="text-red-500 font-bold hover:underline"
+                            >
+                                {isLogin ? 'Đăng ký ngay' : 'Đăng nhập'}
+                            </button>
+                        </p>
                     </div>
                 </div>
             </div>
